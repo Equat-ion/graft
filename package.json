@@ -1,0 +1,8 @@
+{
+  "name": "graft",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
