@@ -68,6 +68,9 @@ def _hash_tree(root: Path, dir_names: tuple[str, ...]) -> dict[str, str]:
         for path in d.rglob("*"):
             if path.is_file():
                 rel = path.relative_to(root).as_posix()
+                # Pytest creates __pycache__/*.pyc during test runs — not tampering
+                if "__pycache__" in rel or rel.endswith(".pyc"):
+                    continue
                 out[rel] = _sha256_file(path)
     return out
 
