@@ -13,9 +13,9 @@ import type { AgentRun } from "@/lib/types";
 
 function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-md border bg-card p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    <div className="rounded-md border border-white/[0.07] bg-card/50 p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-normal tracking-tight tabular-nums">{value}</p>
     </div>
   );
 }
@@ -39,11 +39,12 @@ export default function RunDetailPage() {
   const isViolation = run.status === "tamper_detected" || !!run.violation;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 min-h-screen p-4 md:p-8">
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">Agent run</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground/90">Agent run</h1>
             <StatusBadge status={run.status} />
           </div>
           <VersionBadge from={run.from_version} to={run.to_version} />
@@ -65,9 +66,9 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      <Card>
+      <Card className="shadow-none border border-white/[0.07] bg-card/50">
         <CardHeader>
-          <CardTitle>Test results</CardTitle>
+          <CardTitle className="text-lg font-medium tracking-tight">Test results</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatTile
@@ -89,9 +90,9 @@ export default function RunDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="shadow-none border border-white/[0.07] bg-card/50">
         <CardHeader>
-          <CardTitle>Step trace</CardTitle>
+          <CardTitle className="text-lg font-medium tracking-tight">Step trace</CardTitle>
         </CardHeader>
         <CardContent>
           <StepTrace steps={run.steps} />

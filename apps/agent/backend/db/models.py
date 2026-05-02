@@ -54,6 +54,7 @@ class Project(Base):
     language: Mapped[Language] = mapped_column(
         Enum(Language, name="language_enum"), nullable=False
     )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -140,3 +141,29 @@ class AgentRun(Base):
 
     project: Mapped[Project] = relationship(back_populates="runs")
     dependency: Mapped[Dependency] = relationship(back_populates="runs")
+
+
+class User(Base):
+    __tablename__ = "user"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    email: Mapped[str] = mapped_column(String, unique=True)
+    emailVerified: Mapped[bool] = mapped_column(nullable=False)
+    image: Mapped[str | None] = mapped_column(String, nullable=True)
+    linked_github_repos: Mapped[str | None] = mapped_column(String, nullable=True, default="[]")
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Session(Base):
+    __tablename__ = "session"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    userId: Mapped[str] = mapped_column(String, ForeignKey("user.id", ondelete="CASCADE"))
+    token: Mapped[str] = mapped_column(String, unique=True)
+    expiresAt: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ipAddress: Mapped[str | None] = mapped_column(String, nullable=True)
+    userAgent: Mapped[str | None] = mapped_column(String, nullable=True)
+    createdAt: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updatedAt: Mapped[datetime] = mapped_column(DateTime(timezone=True))

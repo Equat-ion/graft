@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
+import { Plus } from "lucide-react";
 import { RewardScore } from "@/components/RewardScore";
 import { StatusBadge } from "@/components/StatusBadge";
 import { VersionBadge } from "@/components/VersionBadge";
@@ -18,7 +19,7 @@ import type { AgentRunListItem, Project } from "@/lib/types";
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
-  const { data: project, mutate: refreshProject } = useSWR<Project>(
+  const { data: project, error: projectError, mutate: refreshProject } = useSWR<Project>(
     id ? `/api/projects/${id}` : null,
     fetcher
   );
@@ -29,8 +30,36 @@ export default function ProjectDetailPage() {
   );
   const [checking, setChecking] = useState(false);
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
+  const router = useRouter();
 
   if (!id) return null;
+
+  if (projectError) {
+    if (projectError.status === 401) {
+      router.push("/login");
+      return null;
+    }
+    return (
+      <div className="p-8 space-y-4">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/20 bg-destructive/5 p-12 text-center">
+          <p className="text-sm font-medium text-destructive">Failed to load project</p>
+          <p className="text-xs text-muted-foreground mt-1">{projectError.message}</p>
+          <Button variant="outline" onClick={() => router.push("/")} className="mt-6 border-white/[0.07] bg-background/50">
+            Back to projects
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-xs text-muted-foreground mt-4 font-medium tracking-widest uppercase">Loading project…</p>
+      </div>
+    );
+  }
 
   async function onCheck() {
     if (!id) return;
@@ -47,15 +76,13 @@ export default function ProjectDetailPage() {
     }
   }
 
-  if (!project) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
-  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 min-h-screen p-4 md:p-8">
+
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground/90">{project.name}</h1>
           <p className="font-mono text-xs text-muted-foreground">{project.repo_path}</p>
           <Badge variant="outline" className="mt-2">
             {project.language}
@@ -69,9 +96,9 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <Card>
+      <Card className="shadow-none border border-white/[0.07] bg-card/50">
         <CardHeader>
-          <CardTitle>Dependencies</CardTitle>
+          <CardTitle className="text-lg font-medium tracking-tight">Dependencies</CardTitle>
           <CardDescription>
             {project.dependencies.length === 0
               ? "No dependencies registered yet."
@@ -80,23 +107,27 @@ export default function ProjectDetailPage() {
         </CardHeader>
         <CardContent>
           {project.dependencies.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              Add dependencies via the API or use the watcher's auto-discovery.
-            </p>
+            <div className="my-2 flex flex-col items-center justify-center rounded-lg border border-dashed border-white/[0.07] p-10 text-center">
+              <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary/20">
+                <Plus className="h-4 w-4 text-primary" />
+              </div>
+              <p className="text-sm font-medium text-foreground">No dependencies yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Add dependencies via the API or use the watcher's auto-discovery.</p>
+            </div>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-muted/30">
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Ecosystem</TableHead>
-                  <TableHead>Current</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Last checked</TableHead>
+                  <TableHead className="font-semibold">Name</TableHead>
+                  <TableHead className="font-semibold">Ecosystem</TableHead>
+                  <TableHead className="font-semibold">Current</TableHead>
+                  <TableHead className="font-semibold">Target</TableHead>
+                  <TableHead className="font-semibold">Last checked</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {project.dependencies.map((d) => (
-                  <TableRow key={d.id}>
+                  <TableRow key={d.id} className="transition-colors hover:bg-muted/50">
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>
                       <code className="text-xs">{d.ecosystem}</code>
@@ -120,28 +151,31 @@ export default function ProjectDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="shadow-none border border-white/[0.07] bg-card/50">
         <CardHeader>
-          <CardTitle>Run history</CardTitle>
+          <CardTitle className="text-lg font-medium tracking-tight">Run history</CardTitle>
           <CardDescription>All upgrade attempts on this project.</CardDescription>
         </CardHeader>
         <CardContent>
           {!runs || runs.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">No runs yet.</p>
+            <div className="my-2 flex flex-col items-center justify-center rounded-lg border border-dashed border-white/[0.07] p-10 text-center">
+              <p className="text-sm font-medium text-foreground">No runs yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Upgrade attempts will appear here automatically.</p>
+            </div>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="bg-muted/30">
                 <TableRow>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Reward</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Started</TableHead>
+                  <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold">Version</TableHead>
+                  <TableHead className="font-semibold">Reward</TableHead>
+                  <TableHead className="font-semibold">Duration</TableHead>
+                  <TableHead className="font-semibold">Started</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {runs.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} className="transition-colors hover:bg-muted/50">
                     <TableCell>
                       <Link href={`/runs/${r.id}`}>
                         <StatusBadge status={r.status} />

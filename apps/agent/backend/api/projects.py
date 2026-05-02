@@ -10,22 +10,32 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.db.models import Project
+from backend.db.models import Project, User
 from backend.db.schemas import ProjectCreate, ProjectListItem, ProjectOut
 from backend.db.session import get_session
+from backend.auth import get_current_user
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[ProjectListItem])
-async def list_projects(session: AsyncSession = Depends(get_session)) -> list[Project]:
-    rows = await session.execute(select(Project).order_by(Project.created_at.desc()))
+async def list_projects(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[Project]:
+    rows = await session.execute(
+        select(Project)
+        .where(Project.user_id == user.id)
+        .order_by(Project.created_at.desc())
+    )
     return list(rows.scalars().all())
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(
-    payload: ProjectCreate, session: AsyncSession = Depends(get_session)
+    payload: ProjectCreate,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> Project:
     repo = Path(payload.repo_path).expanduser().resolve()
     if not repo.exists():
@@ -41,6 +51,7 @@ async def create_project(
         name=payload.name,
         repo_path=str(repo),
         language=payload.language,
+        user_id=user.id,
     )
     session.add(project)
     await session.flush()
@@ -50,11 +61,14 @@ async def create_project(
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> Project:
     row = await session.execute(
         select(Project)
         .where(Project.id == project_id)
+        .where(Project.user_id == user.id)
         .options(selectinload(Project.dependencies))
     )
     project = row.scalar_one_or_none()
@@ -65,9 +79,15 @@ async def get_project(
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> None:
-    row = await session.execute(select(Project).where(Project.id == project_id))
+    row = await session.execute(
+        select(Project)
+        .where(Project.id == project_id)
+        .where(Project.user_id == user.id)
+    )
     project = row.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")

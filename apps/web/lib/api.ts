@@ -14,11 +14,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    credentials: "include",
     ...init,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status} ${res.statusText}: ${text}`);
+    const error = new Error(`API ${res.status} ${res.statusText}: ${text}`) as any;
+    error.status = res.status;
+    throw error;
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

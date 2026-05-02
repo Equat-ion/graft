@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import AgentRun, RunStatus
+from backend.db.models import AgentRun, RunStatus, User, Project
 from backend.db.schemas import AgentRunListItem, AgentRunOut
 from backend.db.session import get_session
+from backend.auth import get_current_user
 
 router = APIRouter()
 
@@ -22,8 +23,9 @@ async def list_runs(
     status_filter: RunStatus | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> list[AgentRun]:
-    stmt = select(AgentRun)
+    stmt = select(AgentRun).join(Project).where(Project.user_id == user.id)
     if project_id is not None:
         stmt = stmt.where(AgentRun.project_id == project_id)
     if status_filter is not None:
@@ -35,9 +37,13 @@ async def list_runs(
 
 @router.get("/{run_id}", response_model=AgentRunOut)
 async def get_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    run_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> AgentRun:
-    row = await session.execute(select(AgentRun).where(AgentRun.id == run_id))
+    row = await session.execute(
+        select(AgentRun).join(Project).where(AgentRun.id == run_id).where(Project.user_id == user.id)
+    )
     run = row.scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -46,9 +52,13 @@ async def get_run(
 
 @router.post("/{run_id}/cancel", response_model=AgentRunOut)
 async def cancel_run(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    run_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> AgentRun:
-    row = await session.execute(select(AgentRun).where(AgentRun.id == run_id))
+    row = await session.execute(
+        select(AgentRun).join(Project).where(AgentRun.id == run_id).where(Project.user_id == user.id)
+    )
     run = row.scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")

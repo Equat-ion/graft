@@ -36,6 +36,7 @@ class ProjectOut(BaseModel):
     name: str
     repo_path: str
     language: Language
+    user_id: str
     created_at: datetime
     dependencies: list[DependencyOut] = Field(default_factory=list)
 
@@ -47,6 +48,7 @@ class ProjectListItem(BaseModel):
     name: str
     repo_path: str
     language: Language
+    user_id: str
     created_at: datetime
 
 
