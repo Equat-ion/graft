@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { GithubConnectButton } from "@/components/GithubConnectButton";
 import { api } from "@/lib/api";
 import type { Language } from "@/lib/types";
 
@@ -34,18 +35,20 @@ export function RegisterProjectForm() {
   const [language, setLanguage] = useState<Language>("python");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    setCreatedProjectId(null);
     try {
-      await api.createProject({ name, repo_path: repoPath, language });
+      const created = await api.createProject({ name, repo_path: repoPath, language });
       await mutate("/api/projects");
-      setOpen(false);
       setName("");
       setRepoPath("");
       setLanguage("python");
+      setCreatedProjectId(created.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -109,9 +112,27 @@ export function RegisterProjectForm() {
               {error}
             </p>
           )}
+          {createdProjectId && (
+            <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                Project created. Connect GitHub now to enable repo browser and pull request actions.
+              </p>
+              <GithubConnectButton projectId={createdProjectId} />
+            </div>
+          )}
           <SheetFooter>
             <Button type="submit" disabled={submitting}>
               {submitting ? "Creating…" : "Create"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                setCreatedProjectId(null);
+              }}
+            >
+              Done
             </Button>
           </SheetFooter>
         </form>

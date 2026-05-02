@@ -3,6 +3,9 @@ import type {
   AgentRunListItem,
   CheckResult,
   Dependency,
+  GithubPullRequestCreate,
+  GithubRepoList,
+  GithubRepoTree,
   Language,
   Project,
   ProjectListItem,
@@ -51,6 +54,33 @@ export const api = {
     request<Dependency[]>(`/api/deps/${projectId}`),
   checkNow: (projectId: string) =>
     request<CheckResult>(`/api/deps/check-now/${projectId}`, { method: "POST" }),
+
+  githubOauthStart: (projectId: string) =>
+    request<{ url: string }>(`/api/github/oauth/start?project_id=${projectId}`),
+  githubOauthCallback: (code: string, state: string) =>
+    request<{ status: string }>(`/api/github/oauth/callback?code=${code}&state=${state}`),
+  listGithubRepos: (projectId: string) =>
+    request<GithubRepoList>(`/api/github/repos?project_id=${projectId}`),
+  selectGithubRepo: (projectId: string, repoFullName: string) =>
+    request<{ status: string }>(`/api/github/repos/select`, {
+      method: "POST",
+      body: JSON.stringify({ project_id: projectId, repo_full_name: repoFullName }),
+    }),
+  getGithubRepoTree: (projectId: string, ref?: string) => {
+    const q = new URLSearchParams({ project_id: projectId });
+    if (ref) q.set("ref", ref);
+    return request<GithubRepoTree>(`/api/github/repo/tree?${q.toString()}`);
+  },
+  getGithubRepoFile: (projectId: string, path: string, ref?: string) => {
+    const q = new URLSearchParams({ project_id: projectId, path });
+    if (ref) q.set("ref", ref);
+    return request<Record<string, unknown>>(`/api/github/repo/file?${q.toString()}`);
+  },
+  createGithubPr: (payload: GithubPullRequestCreate) =>
+    request<Record<string, unknown>>(`/api/github/pulls`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const fetcher = <T>(path: string) => request<T>(path);

@@ -8,6 +8,10 @@ import { Plus } from "lucide-react";
 import { RewardScore } from "@/components/RewardScore";
 import { StatusBadge } from "@/components/StatusBadge";
 import { VersionBadge } from "@/components/VersionBadge";
+import { GithubConnectButton } from "@/components/GithubConnectButton";
+import { GithubPrForm } from "@/components/GithubPrForm";
+import { GithubRepoBrowser } from "@/components/GithubRepoBrowser";
+import { GithubRepoPicker } from "@/components/GithubRepoPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,12 +43,17 @@ export default function ProjectDetailPage() {
       router.push("/login");
       return null;
     }
+
     return (
       <div className="p-8 space-y-4">
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/20 bg-destructive/5 p-12 text-center">
           <p className="text-sm font-medium text-destructive">Failed to load project</p>
-          <p className="text-xs text-muted-foreground mt-1">{projectError.message}</p>
-          <Button variant="outline" onClick={() => router.push("/")} className="mt-6 border-white/[0.07] bg-background/50">
+          <p className="mt-1 text-xs text-muted-foreground">{projectError.message}</p>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/")}
+            className="mt-6 border-white/[0.07] bg-background/50"
+          >
             Back to projects
           </Button>
         </div>
@@ -54,9 +63,11 @@ export default function ProjectDetailPage() {
 
   if (!project) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="text-xs text-muted-foreground mt-4 font-medium tracking-widest uppercase">Loading project…</p>
+        <p className="mt-4 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          Loading project…
+        </p>
       </div>
     );
   }
@@ -76,10 +87,8 @@ export default function ProjectDetailPage() {
     }
   }
 
-
   return (
-    <div className="space-y-8 min-h-screen p-4 md:p-8">
-
+    <div className="min-h-screen space-y-8 p-4 md:p-8">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight text-foreground/90">{project.name}</h1>
@@ -96,7 +105,7 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <Card className="shadow-none border border-white/[0.07] bg-card/50">
+      <Card className="border border-white/[0.07] bg-card/50 shadow-none">
         <CardHeader>
           <CardTitle className="text-lg font-medium tracking-tight">Dependencies</CardTitle>
           <CardDescription>
@@ -112,7 +121,9 @@ export default function ProjectDetailPage() {
                 <Plus className="h-4 w-4 text-primary" />
               </div>
               <p className="text-sm font-medium text-foreground">No dependencies yet</p>
-              <p className="text-sm text-muted-foreground mt-1">Add dependencies via the API or use the watcher's auto-discovery.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add dependencies via the API or use the watcher&apos;s auto-discovery.
+              </p>
             </div>
           ) : (
             <Table>
@@ -151,7 +162,43 @@ export default function ProjectDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-none border border-white/[0.07] bg-card/50">
+      <Card className="border border-white/[0.07] bg-card/50 shadow-none">
+        <CardHeader>
+          <CardTitle className="text-lg font-medium tracking-tight">GitHub connection</CardTitle>
+          <CardDescription>
+            {project.github_connected
+              ? `Connected as ${project.github_username ?? "unknown user"}.`
+              : "Connect your GitHub account to select a repository and open pull requests."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!project.github_connected ? (
+            <GithubConnectButton projectId={id} />
+          ) : (
+            <GithubRepoPicker
+              projectId={id}
+              selectedRepo={project.github_repo_full_name}
+              onSelected={() => {
+                void refreshProject();
+              }}
+            />
+          )}
+          {project.github_repo_full_name && (
+            <p className="text-xs text-muted-foreground">
+              Selected repository: <span className="font-mono">{project.github_repo_full_name}</span>
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {project.github_connected && project.github_repo_full_name && (
+        <div className="space-y-4">
+          <GithubRepoBrowser projectId={id} />
+          <GithubPrForm projectId={id} />
+        </div>
+      )}
+
+      <Card className="border border-white/[0.07] bg-card/50 shadow-none">
         <CardHeader>
           <CardTitle className="text-lg font-medium tracking-tight">Run history</CardTitle>
           <CardDescription>All upgrade attempts on this project.</CardDescription>
@@ -160,7 +207,9 @@ export default function ProjectDetailPage() {
           {!runs || runs.length === 0 ? (
             <div className="my-2 flex flex-col items-center justify-center rounded-lg border border-dashed border-white/[0.07] p-10 text-center">
               <p className="text-sm font-medium text-foreground">No runs yet</p>
-              <p className="text-sm text-muted-foreground mt-1">Upgrade attempts will appear here automatically.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Upgrade attempts will appear here automatically.
+              </p>
             </div>
           ) : (
             <Table>

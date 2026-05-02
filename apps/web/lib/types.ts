@@ -24,6 +24,9 @@ export interface Project {
   language: Language;
   created_at: string;
   dependencies: Dependency[];
+  github_connected: boolean;
+  github_username: string | null;
+  github_repo_full_name: string | null;
 }
 
 export interface ProjectListItem {
@@ -32,6 +35,42 @@ export interface ProjectListItem {
   repo_path: string;
   language: Language;
   created_at: string;
+  github_connected: boolean;
+  github_username: string | null;
+  github_repo_full_name: string | null;
+}
+
+export interface GithubRepo {
+  full_name: string;
+  default_branch: string;
+  private: boolean;
+}
+
+export interface GithubRepoList {
+  repos: GithubRepo[];
+}
+
+export interface GithubTreeNode {
+  path: string;
+  mode: string;
+  type: string;
+  sha: string;
+  size?: number;
+  url: string;
+}
+
+export interface GithubRepoTree {
+  sha: string;
+  tree: GithubTreeNode[];
+  truncated: boolean;
+}
+
+export interface GithubPullRequestCreate {
+  project_id: string;
+  title: string;
+  head: string;
+  base: string;
+  body: string | null;
 }
 
 export interface StepRecord {
