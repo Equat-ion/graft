@@ -240,6 +240,102 @@ If a newer version is found, it creates a pending `AgentRun` automatically (unle
 
 ---
 
+## GitHub
+
+### `GET /api/github/oauth/start`
+
+Starts the GitHub OAuth flow for a project.
+
+**Query parameters**
+
+| Param | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_id` | uuid | ✅ | Project that should receive the OAuth token |
+
+**Response** `200`
+```json
+{
+  "url": "https://github.com/login/oauth/authorize?..."
+}
+```
+
+### `GET /api/github/oauth/callback`
+
+Completes OAuth and stores the access token on the project.
+
+**Query parameters**
+
+| Param | Type | Required | Description |
+| --- | --- | --- | --- |
+| `code` | string | ✅ | OAuth authorization code from GitHub |
+| `state` | uuid | ✅ | Project ID from the start step |
+
+**Response** `200`
+```json
+{
+  "status": "connected"
+}
+```
+
+### `GET /api/github/repos`
+
+Lists repositories available to the connected GitHub account.
+
+**Query parameters**
+
+| Param | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_id` | uuid | ✅ | Project with stored OAuth token |
+
+### `POST /api/github/repos/select`
+
+Sets the selected repository for a project.
+
+**Request body**
+```json
+{
+  "project_id": "550e8400-e29b-41d4-a716-446655440000",
+  "repo_full_name": "octocat/hello-world"
+}
+```
+
+### `GET /api/github/repo/tree`
+
+Returns repository tree entries for the selected repository.
+
+**Query parameters**
+
+| Param | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_id` | uuid | ✅ | Project with selected repository |
+| `ref` | string | ❌ | Branch, tag, or SHA (`HEAD` by default) |
+
+### `GET /api/github/repo/file`
+
+Returns metadata/content payload for a file in the selected repository.
+
+**Query parameters**
+
+| Param | Type | Required | Description |
+| --- | --- | --- | --- |
+| `project_id` | uuid | ✅ | Project with selected repository |
+| `path` | string | ✅ | Path relative to repository root |
+| `ref` | string | ❌ | Branch, tag, or SHA (`HEAD` by default) |
+
+### `POST /api/github/branches`
+
+Creates a branch ref from a base SHA.
+
+### `POST /api/github/commits`
+
+Creates a commit object for the selected repository.
+
+### `POST /api/github/pulls`
+
+Creates a pull request for the selected repository.
+
+---
+
 ## Enums
 
 ### Language

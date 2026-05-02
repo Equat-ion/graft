@@ -27,6 +27,18 @@ Polling behavior:
 - RegisterProjectForm: registers a repo and triggers SWR revalidation.
 - StepTrace: renders tool steps and shows args and results.
 - RewardScore: colors reward values by threshold.
+- GithubConnectButton: starts OAuth for a specific project.
+- GithubRepoPicker: loads accessible repos and stores selected repo on project.
+- GithubRepoBrowser: shows the selected repository tree.
+- GithubPrForm: creates pull requests through backend GitHub endpoints.
+
+## GitHub OAuth flow
+
+- User clicks `GithubConnectButton` from project registration or project detail page.
+- Frontend calls `GET /api/github/oauth/start` and redirects browser to GitHub authorize URL.
+- GitHub redirects back to `/oauth/github/callback` with `code` and `state`.
+- Callback page calls `GET /api/github/oauth/callback`, then redirects to `/projects/{state}`.
+- Connected projects can pick a repository and use repo browser and PR form UI.
 
 ## UI conventions
 

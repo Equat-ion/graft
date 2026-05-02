@@ -25,6 +25,10 @@ This reference covers all environment variables read by the backend Settings cla
 | SANDBOX_TEST_TIMEOUT_SECONDS | 120 | Test run timeout | Applies to run_tests and final evaluation. |
 | AGENT_MAX_STEPS | 50 | Maximum tool calls per run | Enforced in the state machine router. |
 | HF_TOKEN | empty | HuggingFace token | Only needed for notebooks or gated models. |
+| GITHUB_CLIENT_ID | empty | GitHub OAuth app client ID | Required to start OAuth flow. |
+| GITHUB_CLIENT_SECRET | empty | GitHub OAuth app client secret | Required to exchange OAuth code for token. |
+| GITHUB_OAUTH_REDIRECT_URL | http://localhost:3000/oauth/github/callback | OAuth callback URL | Must match your GitHub OAuth app config. |
+| GITHUB_OAUTH_SCOPES | repo,read:org | OAuth scopes requested | Comma-separated GitHub scopes. |
 
 ## Docker compose defaults
 

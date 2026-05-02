@@ -58,6 +58,10 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
+    github_connected: Mapped[bool] = mapped_column(default=False, nullable=False)
+    github_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    github_access_token: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    github_repo_full_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     dependencies: Mapped[list["Dependency"]] = relationship(
         back_populates="project",

@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     # Agent
     agent_max_steps: int = Field(default=50, alias="AGENT_MAX_STEPS")
 
+    # GitHub OAuth
+    github_client_id: str = Field(default="", alias="GITHUB_CLIENT_ID")
+    github_client_secret: str = Field(default="", alias="GITHUB_CLIENT_SECRET")
+    github_oauth_redirect_url: str = Field(
+        default="http://localhost:3000/oauth/github/callback",
+        alias="GITHUB_OAUTH_REDIRECT_URL",
+    )
+    github_oauth_scopes: str = Field(default="repo,read:org", alias="GITHUB_OAUTH_SCOPES")
+
 
 @lru_cache
 def get_settings() -> Settings:

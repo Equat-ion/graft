@@ -39,6 +39,9 @@ class ProjectOut(BaseModel):
     user_id: str
     created_at: datetime
     dependencies: list[DependencyOut] = Field(default_factory=list)
+    github_connected: bool
+    github_username: str | None
+    github_repo_full_name: str | None
 
 
 class ProjectListItem(BaseModel):
@@ -50,6 +53,45 @@ class ProjectListItem(BaseModel):
     language: Language
     user_id: str
     created_at: datetime
+    github_connected: bool
+    github_username: str | None
+    github_repo_full_name: str | None
+
+
+class GithubRepo(BaseModel):
+    full_name: str
+    default_branch: str
+    private: bool
+
+
+class GithubRepoList(BaseModel):
+    repos: list[GithubRepo]
+
+
+class GithubSelectRepo(BaseModel):
+    project_id: uuid.UUID
+    repo_full_name: str
+
+
+class GithubBranchCreate(BaseModel):
+    project_id: uuid.UUID
+    base_sha: str
+    new_branch: str
+
+
+class GithubCommitCreate(BaseModel):
+    project_id: uuid.UUID
+    message: str
+    tree: str
+    parents: list[str]
+
+
+class GithubPullRequestCreate(BaseModel):
+    project_id: uuid.UUID
+    title: str
+    head: str
+    base: str
+    body: str | None = None
 
 
 class DependencyCreate(BaseModel):

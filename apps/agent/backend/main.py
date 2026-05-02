@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.agent.orchestrator import start_worker, stop_worker
 from backend.agent.vllm_server import start_vllm_server, stop_vllm_server
-from backend.api import deps, projects, runs
+from backend.api import deps, github, projects, runs
 from backend.watcher.scheduler import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -57,6 +57,7 @@ app.add_middleware(
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(deps.router, prefix="/api/deps", tags=["deps"])
+app.include_router(github.router, prefix="/api/github", tags=["github"])
 
 
 @app.get("/health")
