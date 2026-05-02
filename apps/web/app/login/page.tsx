@@ -3,9 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
-import { Github } from "lucide-react";
+import { Github, CheckCircle2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 
 function GoogleIcon() {
@@ -33,7 +34,8 @@ function GoogleIcon() {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [pending, setPending] = useState<"google" | "github" | null>(null);
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [pending, setPending] = useState<"google" | "github" | "credentials" | null>(null);
   const [error, setError] = useState("");
 
   async function signInWith(provider: "google" | "github") {
@@ -50,78 +52,182 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+  const handleCredentialsSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Simulate error since credentials aren't fully hooked up in this demo
+    setError("Invalid credentials or method not supported yet.");
+  };
 
-        {/* Logo */}
-        <div className="mb-8 flex flex-col items-center justify-center space-y-2 text-center">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="font-bold text-primary-foreground">G</span>
-            </div>
-            <span className="text-xl font-bold tracking-tight">Graft</span>
-          </Link>
-          <p className="text-sm text-muted-foreground">
-            Autonomous dependency-upgrade agent
-          </p>
+  return (
+    <div className="flex min-h-screen bg-background">
+      {/* Left Column - Branding */}
+      <div className="hidden lg:flex w-[45%] flex-col justify-between bg-zinc-950 p-12 text-zinc-50 border-r border-zinc-800">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Layers className="h-5 w-5" />
+          </div>
+          <span className="text-xl font-bold tracking-widest uppercase">Graft</span>
         </div>
 
-        <Card className="shadow-none border border-white/[0.07] bg-card/50">
-          <CardHeader className="pb-6">
-            <CardDescription className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Welcome
-            </CardDescription>
-            <CardTitle className="text-2xl font-medium tracking-tight mt-1">
-              Sign in to Graft
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {error && (
-              <div className="p-3 text-sm font-medium rounded-md bg-destructive/10 text-destructive border border-destructive/20">
-                {error}
+        <div className="max-w-md space-y-8">
+          <h1 className="text-5xl font-black uppercase leading-[1.1] tracking-tight">
+            Sign In<br />To Your<br />Workspace
+          </h1>
+          <p className="text-zinc-400 text-lg leading-relaxed">
+            Automated dependency upgrades, agent monitoring, and sandbox execution — all in one place.
+          </p>
+          <ul className="space-y-4 pt-4">
+            <li className="flex items-center gap-3 text-zinc-300">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="text-sm">Autonomous agent tracking</span>
+            </li>
+            <li className="flex items-center gap-3 text-zinc-300">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="text-sm">Dependency upgrade monitoring</span>
+            </li>
+            <li className="flex items-center gap-3 text-zinc-300">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="text-sm">Sandbox execution logs</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="text-xs font-semibold tracking-wider text-zinc-600 uppercase">
+          © 2025-2026 GRAFT. ALL RIGHTS RESERVED.
+        </div>
+      </div>
+
+      {/* Right Column - Login Form */}
+      <div className="flex flex-1 flex-col justify-center px-8 sm:px-16 lg:px-24 xl:px-32">
+        <div className="mx-auto w-full max-w-[400px] space-y-8">
+          <div className="space-y-2">
+            <h2 className="text-3xl font-black uppercase tracking-tight">
+              {mode === "login" ? "Welcome Back" : "Create Account"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {mode === "login" 
+                ? "Enter your credentials to access your account." 
+                : "Enter your details to create a new account."}
+            </p>
+          </div>
+
+          {error && (
+            <div className="p-3 text-sm font-medium rounded-md bg-destructive/10 text-destructive border border-destructive/20">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleCredentialsSubmit} className="space-y-5">
+            {mode === "signup" && (
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Full Name
+                </Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="Ada Lovelace"
+                  className="h-11 bg-muted/50"
+                />
               </div>
             )}
-
-            <Button
-              id="signin-google"
-              variant="outline"
-              className="w-full h-11 gap-3 border-white/[0.10] bg-background/50 hover:bg-white/5 font-medium transition-all"
-              onClick={() => signInWith("google")}
-              disabled={pending !== null}
-            >
-              {pending === "google" ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : (
-                <GoogleIcon />
-              )}
-              {pending === "google" ? "Redirecting…" : "Continue with Google"}
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Email
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="agent@graft.dev"
+                className="h-11 bg-muted/50"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Password
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                className="h-11 bg-muted/50"
+              />
+            </div>
+            <Button type="submit" className="h-11 w-full font-bold uppercase tracking-wide">
+              {mode === "login" ? "Sign In" : "Sign Up"}
             </Button>
+          </form>
 
-            <Button
-              id="signin-github"
-              variant="outline"
-              className="w-full h-11 gap-3 border-white/[0.10] bg-background/50 hover:bg-white/5 font-medium transition-all"
-              onClick={() => signInWith("github")}
-              disabled={pending !== null}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-4 font-bold text-muted-foreground">
+                Or
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border p-6 bg-muted/10 space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Social {mode === "login" ? "Login" : "Sign Up"}
+              </span>
+            </div>
+            
+            <div className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full gap-3 font-medium bg-background"
+                onClick={() => signInWith("google")}
+                disabled={pending !== null}
+              >
+                {pending === "google" ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  <GoogleIcon />
+                )}
+                {pending === "google" 
+                  ? "Redirecting…" 
+                  : mode === "login" ? "Sign In With Google" : "Sign Up With Google"}
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full gap-3 font-medium bg-background"
+                onClick={() => signInWith("github")}
+                disabled={pending !== null}
+              >
+                {pending === "github" ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  <Github className="h-4 w-4" />
+                )}
+                {pending === "github" 
+                  ? "Redirecting…" 
+                  : mode === "login" ? "Sign In With GitHub" : "Sign Up With GitHub"}
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-center text-sm text-muted-foreground">
+            {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === "login" ? "signup" : "login");
+                setError("");
+              }}
+              className="font-semibold text-primary hover:underline"
             >
-              {pending === "github" ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              ) : (
-                <Github className="h-4 w-4" />
-              )}
-              {pending === "github" ? "Redirecting…" : "Continue with GitHub"}
-            </Button>
-
-            <p className="pt-2 text-center text-[11px] text-muted-foreground leading-relaxed">
-              By continuing, you agree to Graft&apos;s{" "}
-              <Link href="#" className="underline underline-offset-2 hover:text-foreground transition-colors">
-                Terms of Service
-              </Link>
-              .
-            </p>
-          </CardContent>
-        </Card>
+              {mode === "login" ? "Sign up" : "Sign in"}
+            </button>
+          </p>
+        </div>
       </div>
     </div>
   );
