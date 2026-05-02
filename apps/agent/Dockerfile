@@ -17,7 +17,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN pip install --upgrade pip \
  && pip install -e . \
  && pip install "uvicorn[standard]>=0.32.0"
