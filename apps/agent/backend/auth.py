@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import Session, User
 from backend.db.session import get_session
+
+logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
@@ -30,14 +34,21 @@ async def get_current_user(
     # Better Auth stores the raw token; the cookie value is "token.signature"
     token = session_token.split(".")[0]
 
-    # Query the session from the database
-    stmt = (
-        select(Session)
-        .where(Session.token == token)
-        .where(Session.expiresAt > datetime.now(timezone.utc))
-    )
-    result = await db.execute(stmt)
-    session_record = result.scalar_one_or_none()
+    try:
+        # Query the session from the database
+        stmt = (
+            select(Session)
+            .where(Session.token == token)
+            .where(Session.expiresAt > datetime.now(timezone.utc))
+        )
+        result = await db.execute(stmt)
+        session_record = result.scalar_one_or_none()
+    except Exception:
+        logger.warning("DB unavailable during auth check", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database temporarily unavailable",
+        )
 
     if not session_record:
         raise HTTPException(
@@ -45,10 +56,17 @@ async def get_current_user(
             detail="Invalid or expired session",
         )
 
-    # Get the user
-    stmt = select(User).where(User.id == session_record.userId)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    try:
+        # Get the user
+        stmt = select(User).where(User.id == session_record.userId)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+    except Exception:
+        logger.warning("DB unavailable during user lookup", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database temporarily unavailable",
+        )
 
     if not user:
         raise HTTPException(
@@ -57,3 +75,4 @@ async def get_current_user(
         )
 
     return user
+

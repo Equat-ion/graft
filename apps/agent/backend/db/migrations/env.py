@@ -41,10 +41,19 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    import ssl as _ssl
+
     from sqlalchemy.ext.asyncio import create_async_engine
+
+    settings = get_settings()
+    connect_args: dict = {"prepared_statement_cache_size": 0}
+    if settings.database_requires_ssl:
+        connect_args["ssl"] = _ssl.create_default_context()
+
     connectable = create_async_engine(
-        get_settings().database_url,
+        settings.database_url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

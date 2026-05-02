@@ -4,13 +4,42 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
-from pydantic import Field
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # config.py lives at apps/agent/backend/config.py — go up 4 levels to repo root
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 _ENV_FILE = _REPO_ROOT / ".env"
+
+# Query-string params that asyncpg does not accept (libpq / psycopg2 only).
+# asyncpg also maps "ssl" in the DSN to its internal sslmode parser, so we
+# must strip it too and handle SSL purely via connect_args.
+_ASYNCPG_UNSUPPORTED_PARAMS = {"sslmode", "ssl", "channel_binding"}
+
+# sslmode values that mean "use SSL".
+_SSL_MODES_REQUIRING_SSL = {"require", "verify-ca", "verify-full", "prefer"}
+
+
+def _parse_asyncpg_url(raw_url: str) -> tuple[str, bool]:
+    """Return (cleaned_url, needs_ssl) for an asyncpg DSN.
+
+    Strips query-string params that asyncpg cannot handle and determines
+    whether the original URL requested an SSL connection.
+    """
+    parts = urlsplit(raw_url)
+    if not parts.query:
+        return raw_url, False
+
+    qs = parse_qs(parts.query, keep_blank_values=True)
+    needs_ssl = any(
+        v in _SSL_MODES_REQUIRING_SSL
+        for v in qs.get("sslmode", [])
+    )
+    cleaned = {k: v for k, v in qs.items() if k not in _ASYNCPG_UNSUPPORTED_PARAMS}
+    new_query = urlencode(cleaned, doseq=True)
+    return urlunsplit(parts._replace(query=new_query)), needs_ssl
 
 
 class Settings(BaseSettings):
@@ -21,11 +50,25 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Database
-    database_url: str = Field(
+    # Database (raw value from env; use database_url for connections)
+    database_url_raw: str = Field(
         default="postgresql+asyncpg://graft:graft@localhost:5432/graft",
         alias="DATABASE_URL",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def database_url(self) -> str:
+        """Return a DATABASE_URL with asyncpg-incompatible params stripped."""
+        url, _ = _parse_asyncpg_url(self.database_url_raw)
+        return url
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def database_requires_ssl(self) -> bool:
+        """Whether the original DATABASE_URL requested an SSL connection."""
+        _, needs_ssl = _parse_asyncpg_url(self.database_url_raw)
+        return needs_ssl
 
     # LLM — any OpenAI-compatible endpoint
     llm_base_url: str = Field(
