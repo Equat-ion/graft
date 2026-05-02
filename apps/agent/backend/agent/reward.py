@@ -17,7 +17,8 @@ def compute_reward(
     reward = 0.0
 
     # Terminal: all originally-passing tests still pass and nothing is broken.
-    if final_passed >= baseline_passed and final_failed == 0:
+    # Require baseline_passed > 0 so a no-op rollout on a broken baseline can't farm +1.
+    if baseline_passed > 0 and final_passed >= baseline_passed and final_failed == 0:
         reward += 1.0
 
     # Partial: previously-failing tests now pass.
