@@ -1,0 +1,142 @@
+"""SQLAlchemy 2.0 async models for Graft."""
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _uuid() -> uuid.UUID:
+    return uuid.uuid4()
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Language(str, enum.Enum):
+    python = "python"
+    javascript = "javascript"
+    typescript = "typescript"
+    rust = "rust"
+
+
+class Ecosystem(str, enum.Enum):
+    pypi = "pypi"
+    npm = "npm"
+    crates = "crates"
+
+
+class RunStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    success = "success"
+    failed = "failed"
+    tamper_detected = "tamper_detected"
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    repo_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    language: Mapped[Language] = mapped_column(
+        Enum(Language, name="language_enum"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+    dependencies: Mapped[list["Dependency"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    runs: Mapped[list["AgentRun"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class Dependency(Base):
+    __tablename__ = "dependencies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    current_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ecosystem: Mapped[Ecosystem] = mapped_column(
+        Enum(Ecosystem, name="ecosystem_enum"), nullable=False
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    project: Mapped[Project] = relationship(back_populates="dependencies")
+    runs: Mapped[list["AgentRun"]] = relationship(
+        back_populates="dependency",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    dependency_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("dependencies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[RunStatus] = mapped_column(
+        Enum(RunStatus, name="run_status_enum"),
+        nullable=False,
+        default=RunStatus.pending,
+        index=True,
+    )
+    steps: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    reward: Mapped[float | None] = mapped_column(Float, nullable=True)
+    from_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    baseline_passed: Mapped[int | None] = mapped_column(nullable=True)
+    baseline_failed: Mapped[int | None] = mapped_column(nullable=True)
+    final_passed: Mapped[int | None] = mapped_column(nullable=True)
+    final_failed: Mapped[int | None] = mapped_column(nullable=True)
+    violation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    project: Mapped[Project] = relationship(back_populates="runs")
+    dependency: Mapped[Dependency] = relationship(back_populates="runs")

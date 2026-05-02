@@ -1,0 +1,75 @@
+# Local-dev compose. Production deploys should harden secrets, pin images, and
+# move vLLM to a dedicated GPU node rather than running it inside the backend.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: graft
+      POSTGRES_USER: graft
+      POSTGRES_PASSWORD: graft
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graft -d graft"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./apps/agent
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://graft:graft@db:5432/graft
+      VLLM_PORT: "8001"
+      TRAINING_BASE_MODEL: ${TRAINING_BASE_MODEL:-Qwen/Qwen2.5-Coder-3B-Instruct}
+      SFT_CHECKPOINT_DIR: /app/checkpoints/sft
+      GRPO_CHECKPOINT_DIR: /app/checkpoints/grpo
+      DEP_POLL_INTERVAL_MINUTES: "15"
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ./apps/agent:/app
+      - ./training/checkpoints:/app/checkpoints
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # Uncomment for GPU access (requires NVIDIA Container Toolkit on the host).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  frontend:
+    build:
+      context: ./apps/web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+
+  jupyter:
+    build:
+      context: ./training
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./training:/notebooks
+      - ./apps/agent:/notebooks/apps/agent:ro
+
+volumes:
+  postgres_data:
