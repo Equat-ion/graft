@@ -27,10 +27,13 @@ async def get_current_user(
             detail="Not authenticated",
         )
 
+    # Better Auth stores the raw token; the cookie value is "token.signature"
+    token = session_token.split(".")[0]
+
     # Query the session from the database
     stmt = (
         select(Session)
-        .where(Session.token == session_token)
+        .where(Session.token == token)
         .where(Session.expiresAt > datetime.now(timezone.utc))
     )
     result = await db.execute(stmt)

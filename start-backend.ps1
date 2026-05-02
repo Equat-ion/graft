@@ -1,6 +1,6 @@
 # start-backend.ps1 - start the Graft FastAPI backend
 # Usage: .\start-backend.ps1
-# Requires: Python 3.11+, PostgreSQL running, .env at repo root
+# Requires: Python 3.11+, .env at repo root with postgresql+asyncpg:// DATABASE_URL
 
 Set-Location $PSScriptRoot
 
@@ -15,11 +15,11 @@ if (-not (Test-Path ".env")) {
 
 # Validate DATABASE_URL uses asyncpg driver
 $envContent = Get-Content ".env" -Raw
-if ($envContent -match 'DATABASE_URL\s*=\s*postgresql://') {
+if ($envContent -match 'DATABASE_URL\s*=\s*postgresql://[^+]') {
     Write-Host ""
-    Write-Host "  [ERROR] DATABASE_URL uses 'postgresql://' — must be 'postgresql+asyncpg://'" -ForegroundColor Red
+    Write-Host "  [ERROR] DATABASE_URL must use postgresql+asyncpg:// not postgresql://" -ForegroundColor Red
     Write-Host "  Fix your .env:" -ForegroundColor Red
-    Write-Host "    DATABASE_URL=postgresql+asyncpg://graft:graft@localhost:5432/graft" -ForegroundColor Yellow
+    Write-Host "    DATABASE_URL=postgresql+asyncpg://user:pass@host/db?ssl=require" -ForegroundColor Yellow
     Write-Host ""
     exit 1
 }
@@ -32,16 +32,18 @@ if (-not (Test-Path $venvPy)) {
 
 Write-Host "  Installing / syncing dependencies ..." -ForegroundColor Gray
 & "apps\agent\.venv\Scripts\pip.exe" install -q -e "apps\agent[dev]"
-# psycopg2-binary is needed by Alembic's sync migration runner
 & "apps\agent\.venv\Scripts\pip.exe" install -q psycopg2-binary asyncpg
 
 Write-Host "  Running Alembic migrations ..." -ForegroundColor Gray
 $env:PYTHONPATH = "$PSScriptRoot\apps\agent"
-& "apps\agent\.venv\Scripts\alembic.exe" --config "apps\agent\alembic.ini" upgrade head
-if ($LASTEXITCODE -ne 0) {
+Push-Location "$PSScriptRoot\apps\agent"
+& ".venv\Scripts\alembic.exe" upgrade head
+$migrateExit = $LASTEXITCODE
+Pop-Location
+if ($migrateExit -ne 0) {
     Write-Host ""
-    Write-Host "  [ERROR] Migrations failed — is PostgreSQL running?" -ForegroundColor Red
-    Write-Host "  Check DATABASE_URL in .env and ensure postgres is up." -ForegroundColor Yellow
+    Write-Host "  [ERROR] Migrations failed - check DATABASE_URL in .env" -ForegroundColor Red
+    Write-Host "  Ensure the database is reachable and DATABASE_URL is correct." -ForegroundColor Yellow
     exit 1
 }
 

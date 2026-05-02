@@ -18,20 +18,11 @@ depends_on: str | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "projects",
-        sa.Column("github_connected", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
-    op.add_column("projects", sa.Column("github_username", sa.String(length=255), nullable=True))
-    op.add_column(
-        "projects",
-        sa.Column("github_access_token", sa.String(length=2048), nullable=True),
-    )
-    op.add_column(
-        "projects",
-        sa.Column("github_repo_full_name", sa.String(length=512), nullable=True),
-    )
-    op.alter_column("projects", "github_connected", server_default=None)
+    conn = op.get_bind()
+    conn.execute(sa.text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_connected BOOLEAN NOT NULL DEFAULT FALSE"))
+    conn.execute(sa.text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_username VARCHAR(255)"))
+    conn.execute(sa.text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_access_token VARCHAR(2048)"))
+    conn.execute(sa.text("ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_repo_full_name VARCHAR(512)"))
 
 
 def downgrade() -> None:
