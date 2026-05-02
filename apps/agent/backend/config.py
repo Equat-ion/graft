@@ -23,11 +23,35 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
-    # Local inference
-    vllm_port: int = Field(default=8001, alias="VLLM_PORT")
-    vllm_gpu_util: float = Field(default=0.85, alias="VLLM_GPU_UTIL")
+    # LLM — any OpenAI-compatible endpoint
+    llm_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        alias="LLM_BASE_URL",
+    )
+    llm_api_key: str = Field(
+        default="",
+        alias="LLM_API_KEY",
+    )
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        alias="LLM_MODEL",
+    )
+    llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
+    llm_max_tokens: int = Field(default=2048, alias="LLM_MAX_TOKENS")
 
-    # Model checkpoints
+    # Watcher
+    dep_poll_interval_minutes: int = Field(default=15, alias="DEP_POLL_INTERVAL_MINUTES")
+
+    # Sandbox
+    sandbox_cpu_count: int = Field(default=2, alias="SANDBOX_CPU_COUNT")
+    sandbox_memory_mb: int = Field(default=2048, alias="SANDBOX_MEMORY_MB")
+    sandbox_test_timeout_seconds: int = Field(default=120, alias="SANDBOX_TEST_TIMEOUT_SECONDS")
+
+    # Agent
+    agent_max_steps: int = Field(default=50, alias="AGENT_MAX_STEPS")
+
+    # Training notebooks only
+    hf_token: str | None = Field(default=None, alias="HF_TOKEN")
     training_base_model: str = Field(
         default="Qwen/Qwen2.5-Coder-3B-Instruct",
         alias="TRAINING_BASE_MODEL",
@@ -40,21 +64,6 @@ class Settings(BaseSettings):
         default=Path("training/checkpoints/grpo"),
         alias="GRPO_CHECKPOINT_DIR",
     )
-    force_model_source: str | None = Field(default=None, alias="FORCE_MODEL_SOURCE")
-
-    # Watcher
-    dep_poll_interval_minutes: int = Field(default=15, alias="DEP_POLL_INTERVAL_MINUTES")
-
-    # Sandbox
-    sandbox_cpu_count: int = Field(default=2, alias="SANDBOX_CPU_COUNT")
-    sandbox_memory_mb: int = Field(default=2048, alias="SANDBOX_MEMORY_MB")
-    sandbox_test_timeout_seconds: int = Field(default=120, alias="SANDBOX_TEST_TIMEOUT_SECONDS")
-
-    # Optional, for training notebooks only
-    hf_token: str | None = Field(default=None, alias="HF_TOKEN")
-
-    # Agent
-    agent_max_steps: int = Field(default=50, alias="AGENT_MAX_STEPS")
 
     # GitHub OAuth
     github_client_id: str = Field(default="", alias="GITHUB_CLIENT_ID")

@@ -34,6 +34,7 @@ from backend.agent.prompts import GRAFT_SYSTEM_PROMPT
 from backend.agent.reward import compute_reward
 from backend.agent.session import current_session
 from backend.agent.tools import ALL_TOOLS, serialise_args, tools_by_name
+from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,15 @@ class GraftState(TypedDict, total=False):
     violation: str | None
 
 
-def make_llm(vllm_base_url: str) -> ChatOpenAI:
-    """ChatOpenAI client pointed at the local vLLM server."""
+def make_llm() -> ChatOpenAI:
+    """Build a ChatOpenAI client from Settings (any OpenAI-compatible endpoint)."""
+    s = get_settings()
     return ChatOpenAI(
-        base_url=vllm_base_url,
-        api_key="ignored",
-        model="graft-agent",
-        temperature=0.2,
-        max_tokens=1024,
+        base_url=s.llm_base_url,
+        api_key=s.llm_api_key or "ignored",
+        model=s.llm_model,
+        temperature=s.llm_temperature,
+        max_tokens=s.llm_max_tokens,
         timeout=120,
     )
 
@@ -77,10 +79,10 @@ def _initial_messages(state: GraftState) -> list[BaseMessage]:
     return [SystemMessage(content=GRAFT_SYSTEM_PROMPT), HumanMessage(content=user)]
 
 
-def build_graph(vllm_base_url: str):
+def build_graph():
     """Compile and return a LangGraph runnable for one episode."""
 
-    llm = make_llm(vllm_base_url).bind_tools(ALL_TOOLS)
+    llm = make_llm().bind_tools(ALL_TOOLS)
     tools = tools_by_name()
 
     def agent_node(state: GraftState) -> dict[str, Any]:

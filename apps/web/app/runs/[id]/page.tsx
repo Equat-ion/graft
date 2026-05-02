@@ -1,21 +1,68 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Clock, GitCommit, Zap } from "lucide-react";
 import { RewardScore } from "@/components/RewardScore";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StepTrace } from "@/components/StepTrace";
 import { VersionBadge } from "@/components/VersionBadge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetcher } from "@/lib/api";
-import { formatDuration, formatRelative } from "@/lib/utils";
+import { cn, formatDuration, formatRelative } from "@/lib/utils";
 import type { AgentRun } from "@/lib/types";
 
-function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
+function Tile({
+  label,
+  value,
+  icon: Icon,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  icon?: React.ElementType;
+  className?: string;
+}) {
   return (
-    <div className="rounded-md border border-white/[0.07] bg-card/50 p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-normal tracking-tight tabular-nums">{value}</p>
+    <div className={cn("rounded-lg border border-border bg-card p-4", className)}>
+      <div className="flex items-center gap-2 mb-1">
+        {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function TestBar({
+  passed,
+  failed,
+  label,
+}: {
+  passed: number | null;
+  failed: number | null;
+  label: string;
+}) {
+  const total = (passed ?? 0) + (failed ?? 0);
+  const pct = total > 0 ? ((passed ?? 0) / total) * 100 : 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums">
+          <span className="text-emerald-400">{passed ?? "—"}</span>
+          <span className="text-muted-foreground"> / </span>
+          <span className="text-red-400">{failed ?? "—"}</span>
+        </span>
+      </div>
+      {total > 0 && (
+        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -33,71 +80,98 @@ export default function RunDetailPage() {
   );
 
   if (!run) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        Loading run…
+      </div>
+    );
   }
 
   const isViolation = run.status === "tamper_detected" || !!run.violation;
+  const isRunning = run.status === "running";
 
   return (
-    <div className="space-y-8 min-h-screen p-4 md:p-8">
-
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground/90">Agent run</h1>
-            <StatusBadge status={run.status} />
-          </div>
-          <VersionBadge from={run.from_version} to={run.to_version} />
+    <div className="space-y-6">
+      {/* Back + title */}
+      <div className="space-y-3">
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-3 w-3" />
+          Dashboard
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold tracking-tight">Agent run</h1>
+          <StatusBadge status={run.status} />
+          {isRunning && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse" />
+              Live polling…
+            </span>
+          )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <StatTile label="Reward" value={<RewardScore value={run.reward} />} />
-          <StatTile label="Duration" value={formatDuration(run.started_at, run.finished_at)} />
-          <StatTile label="Steps" value={run.steps.length} />
-          <StatTile label="Started" value={formatRelative(run.started_at)} />
-        </div>
+        <VersionBadge from={run.from_version} to={run.to_version} />
       </div>
 
+      {/* Violation banner */}
       {isViolation && run.violation && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-          <p className="font-semibold">Violation: {run.violation}</p>
-          <p className="text-xs opacity-80">
-            Reward is forced to −1.0 when the agent tampers with tests or test config.
-          </p>
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+          <div>
+            <p className="text-sm font-semibold text-red-400">Violation: {run.violation}</p>
+            <p className="mt-0.5 text-xs text-red-400/70">
+              The agent tampered with the test suite. Reward forced to −1.0.
+            </p>
+          </div>
         </div>
       )}
 
-      <Card className="shadow-none border border-white/[0.07] bg-card/50">
-        <CardHeader>
-          <CardTitle className="text-lg font-medium tracking-tight">Test results</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <StatTile
-            label="Baseline passed"
-            value={run.baseline_passed ?? "—"}
-          />
-          <StatTile
-            label="Baseline failed"
-            value={run.baseline_failed ?? "—"}
-          />
-          <StatTile
-            label="Final passed"
-            value={run.final_passed ?? "—"}
-          />
-          <StatTile
-            label="Final failed"
-            value={run.final_failed ?? "—"}
-          />
-        </CardContent>
-      </Card>
+      {/* Top stats */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile label="Reward" value={<RewardScore value={run.reward} />} icon={Zap} />
+        <Tile label="Duration" value={formatDuration(run.started_at, run.finished_at)} icon={Clock} />
+        <Tile label="Steps" value={run.steps.length} icon={GitCommit} />
+        <Tile label="Started" value={formatRelative(run.started_at)} icon={CheckCircle2} />
+      </div>
 
-      <Card className="shadow-none border border-white/[0.07] bg-card/50">
-        <CardHeader>
-          <CardTitle className="text-lg font-medium tracking-tight">Step trace</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Test results */}
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <h2 className="text-sm font-semibold">Test results</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <TestBar passed={run.baseline_passed} failed={run.baseline_failed} label="Baseline" />
+          <TestBar passed={run.final_passed} failed={run.final_failed} label="Final" />
+        </div>
+        {run.baseline_passed !== null && run.final_passed !== null && (
+          <p className="text-xs text-muted-foreground">
+            {run.final_passed > run.baseline_passed ? (
+              <span className="text-emerald-400">
+                +{run.final_passed - run.baseline_passed} tests now passing
+              </span>
+            ) : run.final_passed < run.baseline_passed ? (
+              <span className="text-red-400">
+                {run.baseline_passed - run.final_passed} regressions introduced
+              </span>
+            ) : (
+              <span>No change in passing tests</span>
+            )}
+          </p>
+        )}
+      </div>
+
+      {/* Step trace */}
+      <div className="rounded-xl border border-border bg-card">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-semibold">Step trace</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {run.steps.length} tool call{run.steps.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="p-5">
           <StepTrace steps={run.steps} />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

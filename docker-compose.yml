@@ -1,5 +1,4 @@
-# Local-dev compose. Production deploys should harden secrets, pin images, and
-# move vLLM to a dedicated GPU node rather than running it inside the backend.
+# Local-dev compose. Production deploys should harden secrets and pin images.
 
 services:
   db:
@@ -23,31 +22,20 @@ services:
       context: ./apps/agent
     ports:
       - "8000:8000"
-      - "8001:8001"
     depends_on:
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+asyncpg://graft:graft@db:5432/graft
-      VLLM_PORT: "8001"
-      TRAINING_BASE_MODEL: ${TRAINING_BASE_MODEL:-Qwen/Qwen2.5-Coder-3B-Instruct}
-      SFT_CHECKPOINT_DIR: /app/checkpoints/sft
-      GRPO_CHECKPOINT_DIR: /app/checkpoints/grpo
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       DEP_POLL_INTERVAL_MINUTES: "15"
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - ./apps/agent:/app
-      - ./training/checkpoints:/app/checkpoints
       - /var/run/docker.sock:/var/run/docker.sock
     command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    # Uncomment for GPU access (requires NVIDIA Container Toolkit on the host).
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
   frontend:
     build:

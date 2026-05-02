@@ -1,7 +1,7 @@
 """Background worker: drains pending AgentRun rows through the LangGraph agent.
 
 Lifecycle:
-    start_worker(app)       — call from FastAPI lifespan after vLLM is healthy
+    start_worker(app)       — call from FastAPI lifespan
     stop_worker()           — call on shutdown
 
 The worker polls every few seconds. When it picks up a pending run, it:
@@ -71,20 +71,8 @@ def _emit_step_callback(run_id: uuid.UUID, loop: asyncio.AbstractEventLoop):
         asyncio.run_coroutine_threadsafe(_persist_step(run_id, record), loop)
     return _cb
 
-
 async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
     settings = get_settings()
-    vllm_url = getattr(app.state, "vllm_url", None)
-    if not vllm_url:
-        logger.error("vLLM URL not on app.state; cannot execute run %s", run_id)
-        async with SessionLocal() as session:
-            run = await session.get(AgentRun, run_id)
-            if run is not None:
-                run.status = RunStatus.failed
-                run.violation = "vllm_unavailable"
-                run.finished_at = datetime.now(timezone.utc)
-                await session.commit()
-        return
 
     async with SessionLocal() as session:
         run = await session.get(AgentRun, run_id)
@@ -102,6 +90,7 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         to_version = run.to_version or dep.target_version or dep.current_version
         repo_path = Path(project.repo_path)
         language = project.language.value
+        dep_name = dep.name
 
     sandbox = SandboxRunner(
         repo_path=repo_path,
@@ -117,12 +106,12 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         from backend.agent.graph import build_graph
 
         baseline = sandbox.prepare()
-        graph = build_graph(vllm_url)
+        graph = build_graph()
         agent_session = AgentSession(
             run_id=run_id,
             workspace=sandbox.workspace,
             language=language,
-            dep_name=dep.name,
+            dep_name=dep_name,
             from_version=from_version,
             to_version=to_version,
             sandbox=sandbox,
@@ -133,7 +122,7 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         initial_state: dict[str, Any] = {
             "run_id": str(run_id),
             "repo_path": str(repo_path),
-            "dep_name": dep.name,
+            "dep_name": dep_name,
             "from_version": from_version,
             "to_version": to_version,
             "baseline_passed": baseline.passed,
@@ -181,7 +170,11 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         if violation == "cancelled_by_user":
             run.status = RunStatus.failed
         elif violation:
-            run.status = RunStatus.tamper_detected if "tamper" in violation.lower() or "test" in violation.lower() else RunStatus.failed
+            run.status = (
+                RunStatus.tamper_detected
+                if "tamper" in violation.lower() or "test" in violation.lower()
+                else RunStatus.failed
+            )
         elif reward is not None and reward >= 0.5:
             run.status = RunStatus.success
         else:
