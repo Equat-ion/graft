@@ -1,4 +1,4 @@
-# start-frontend.ps1 — start the Graft Next.js frontend
+# start-frontend.ps1 - start the Graft Next.js frontend
 # Usage: .\start-frontend.ps1
 # Requires: Node 20+, npm
 
