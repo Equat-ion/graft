@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { Plus } from "lucide-react";
 import { RewardScore } from "@/components/RewardScore";
@@ -32,13 +32,15 @@ export default function ProjectDetailPage() {
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const router = useRouter();
 
-  if (!id) return null;
+  const is401 = projectError?.status === 401;
+
+  useEffect(() => {
+    if (is401) router.push("/login");
+  }, [is401, router]);
+
+  if (!id || is401) return null;
 
   if (projectError) {
-    if (projectError.status === 401) {
-      router.push("/login");
-      return null;
-    }
     return (
       <div className="p-8 space-y-4">
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/20 bg-destructive/5 p-12 text-center">

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fetcher } from "@/lib/api";
+import { authClient } from "@/lib/auth-client";
 import { formatDuration, formatRelative } from "@/lib/utils";
 import type { AgentRunListItem, ProjectListItem } from "@/lib/types";
 
@@ -41,12 +42,28 @@ export default function DashboardPage() {
     refreshInterval: 5000,
   });
 
+  const is401 = projectsError?.status === 401 || runsError?.status === 401;
+
+  if (is401) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/20 bg-destructive/5 p-12 text-center max-w-sm">
+          <p className="text-sm font-medium text-destructive">Session expired</p>
+          <p className="text-xs text-muted-foreground mt-1">Your session is no longer valid. Please sign in again.</p>
+          <Button
+            variant="outline"
+            className="mt-6 border-white/[0.07] bg-background/50"
+            onClick={() => authClient.signOut().then(() => router.push("/login"))}
+          >
+            Sign out &amp; sign in again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (projectsError || runsError) {
     const err = projectsError || runsError;
-    if (err.status === 401) {
-      router.push("/login");
-      return null;
-    }
     return (
       <div className="p-8 space-y-4">
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/20 bg-destructive/5 p-12 text-center">

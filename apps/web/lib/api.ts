@@ -1,3 +1,4 @@
+import { authClient } from "./auth-client";
 import type {
   AgentRun,
   AgentRunListItem,
@@ -11,9 +12,43 @@ import type {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Cache the session token to avoid fetching it on every request
+let _tokenCache: { token: string; expiry: number } | null = null;
+
+async function getSessionToken(): Promise<string | null> {
+  if (_tokenCache && Date.now() < _tokenCache.expiry) {
+    return _tokenCache.token;
+  }
+  try {
+    const { data } = await authClient.getSession();
+    const token = data?.session?.token;
+    if (token) {
+      // Cache for 4 minutes (sessions typically last much longer)
+      _tokenCache = { token, expiry: Date.now() + 4 * 60 * 1000 };
+      return token;
+    }
+  } catch {
+    // ignore — will fall through with no token
+  }
+  _tokenCache = null;
+  return null;
+}
+
+/** Call this on sign-out to bust the cache */
+export function clearSessionTokenCache() {
+  _tokenCache = null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await getSessionToken();
+  const authHeader: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+      ...authHeader,
+    },
     credentials: "include",
     ...init,
   });
