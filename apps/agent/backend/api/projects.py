@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.api.orgs import get_accessible_org_by_id
 from backend.db.models import Project, User
 from backend.db.schemas import ProjectCreate, ProjectListItem, ProjectOut
 from backend.db.session import get_session
@@ -20,14 +21,15 @@ router = APIRouter()
 
 @router.get("", response_model=list[ProjectListItem])
 async def list_projects(
+    org_id: uuid.UUID | None = None,
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[Project]:
-    rows = await session.execute(
-        select(Project)
-        .where(Project.user_id == user.id)
-        .order_by(Project.created_at.desc())
-    )
+    stmt = select(Project).where(Project.user_id == user.id)
+    if org_id is not None:
+        await get_accessible_org_by_id(session, user, org_id)
+        stmt = stmt.where(Project.org_id == org_id)
+    rows = await session.execute(stmt.order_by(Project.created_at.desc()))
     return list(rows.scalars().all())
 
 
@@ -46,12 +48,15 @@ async def create_project(
         raise HTTPException(
             status_code=400, detail=f"repo_path must be a directory: {repo}"
         )
+    if payload.org_id is not None:
+        await get_accessible_org_by_id(session, user, payload.org_id)
 
     project = Project(
         name=payload.name,
         repo_path=str(repo),
         language=payload.language,
         user_id=user.id,
+        org_id=payload.org_id,
     )
     session.add(project)
     await session.flush()

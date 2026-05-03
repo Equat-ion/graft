@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     sandbox_cpu_count: int = Field(default=2, alias="SANDBOX_CPU_COUNT")
     sandbox_memory_mb: int = Field(default=2048, alias="SANDBOX_MEMORY_MB")
     sandbox_test_timeout_seconds: int = Field(default=120, alias="SANDBOX_TEST_TIMEOUT_SECONDS")
+    bootstrap_git_image: str = Field(default="alpine/git:2.47.2", alias="BOOTSTRAP_GIT_IMAGE")
+    bootstrap_git_timeout_seconds: int = Field(default=180, alias="BOOTSTRAP_GIT_TIMEOUT_SECONDS")
 
     # Agent
     agent_max_steps: int = Field(default=50, alias="AGENT_MAX_STEPS")

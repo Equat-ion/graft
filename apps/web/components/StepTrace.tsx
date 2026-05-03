@@ -12,10 +12,11 @@ import {
   TestTube2,
   CheckSquare,
 } from "lucide-react";
+import type { ElementType } from "react";
 import { cn } from "@/lib/utils";
 import type { StepRecord } from "@/lib/types";
 
-const TOOL_META: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+const TOOL_META: Record<string, { icon: ElementType; color: string; bg: string }> = {
   read_file:      { icon: FileText,    color: "text-sky-400",     bg: "bg-sky-500/20" },
   edit_file:      { icon: FilePen,     color: "text-amber-400",   bg: "bg-amber-500/20" },
   grep_repo:      { icon: Search,      color: "text-violet-400",  bg: "bg-violet-500/20" },
@@ -146,3 +147,4 @@ export function StepTrace({
     </ol>
   );
 }
+

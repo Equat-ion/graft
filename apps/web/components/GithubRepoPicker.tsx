@@ -51,7 +51,7 @@ export function GithubRepoPicker({
     <div className="space-y-2">
       <Select value={selected} onValueChange={setSelected}>
         <SelectTrigger>
-          <SelectValue placeholder={isLoading ? "Loading repositories…" : "Select repository"} />
+          <SelectValue placeholder={isLoading ? "Loading repositories..." : "Select repository"} />
         </SelectTrigger>
         <SelectContent>
           {repos.map((repo) => (
@@ -62,9 +62,10 @@ export function GithubRepoPicker({
         </SelectContent>
       </Select>
       <Button onClick={onSave} disabled={!selected || saving}>
-        {saving ? "Saving…" : "Save repository"}
+        {saving ? "Saving..." : "Save repository"}
       </Button>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
+

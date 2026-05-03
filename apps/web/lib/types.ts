@@ -22,6 +22,7 @@ export interface Project {
   name: string;
   repo_path: string;
   language: Language;
+  org_id: string | null;
   created_at: string;
   dependencies: Dependency[];
   github_connected: boolean;
@@ -34,10 +35,43 @@ export interface ProjectListItem {
   name: string;
   repo_path: string;
   language: Language;
+  org_id: string | null;
   created_at: string;
   github_connected: boolean;
   github_username: string | null;
   github_repo_full_name: string | null;
+}
+
+export interface OrganizationProject {
+  id: string;
+  name: string;
+  repo_path: string;
+  language: Language;
+  user_id: string;
+  org_id: string | null;
+  created_at: string;
+  github_connected: boolean;
+  github_username: string | null;
+  github_repo_full_name: string | null;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  created_at: string;
+  projects: OrganizationProject[];
+}
+
+export interface OrganizationCreateInput {
+  name: string;
+  slug?: string | null;
+}
+
+export interface OrganizationUpdateInput {
+  name?: string | null;
+  slug?: string | null;
 }
 
 export interface GithubRepo {
