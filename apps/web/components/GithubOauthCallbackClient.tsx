@@ -25,6 +25,19 @@ export function GithubOauthCallbackClient() {
       try {
         await api.githubOauthCallback(code, state);
         if (!active) return;
+        const project = await api.getProject(state);
+        if (!active) return;
+
+        if (project.org_id) {
+          const orgs = await api.listOrgs();
+          const org = orgs.find((entry) => entry.id === project.org_id);
+          if (org) {
+            setMessage("GitHub connected. Redirecting...");
+            router.replace(`/app/org/${org.slug}/${state}/dashboard`);
+            return;
+          }
+        }
+
         setMessage("GitHub connected. Redirecting...");
         router.replace(`/projects/${state}`);
       } catch (e) {

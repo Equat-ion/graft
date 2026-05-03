@@ -15,6 +15,7 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     repo_path: str = Field(min_length=1, max_length=2048)
     language: Language
+    org_id: uuid.UUID | None = None
 
 
 class DependencyOut(BaseModel):
@@ -37,6 +38,7 @@ class ProjectOut(BaseModel):
     repo_path: str
     language: Language
     user_id: str
+    org_id: uuid.UUID | None
     created_at: datetime
     dependencies: list[DependencyOut] = Field(default_factory=list)
     github_connected: bool
@@ -52,10 +54,47 @@ class ProjectListItem(BaseModel):
     repo_path: str
     language: Language
     user_id: str
+    org_id: uuid.UUID | None
     created_at: datetime
     github_connected: bool
     github_username: str | None
     github_repo_full_name: str | None
+
+
+class OrganizationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    slug: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class OrganizationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    slug: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class OrganizationProjectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    repo_path: str
+    language: Language
+    user_id: str
+    org_id: uuid.UUID | None
+    created_at: datetime
+    github_connected: bool
+    github_username: str | None
+    github_repo_full_name: str | None
+
+
+class OrganizationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    owner_id: str
+    created_at: datetime
+    projects: list[OrganizationProjectOut] = Field(default_factory=list)
 
 
 class GithubRepo(BaseModel):

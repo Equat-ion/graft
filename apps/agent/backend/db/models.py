@@ -55,6 +55,12 @@ class Project(Base):
         Enum(Language, name="language_enum"), nullable=False
     )
     user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -63,6 +69,7 @@ class Project(Base):
     github_access_token: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     github_repo_full_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
+    organization: Mapped["Organization | None"] = relationship(back_populates="projects")
     dependencies: Mapped[list["Dependency"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
@@ -73,6 +80,51 @@ class Project(Base):
         cascade="all, delete-orphan",
         lazy="select",
     )
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+    members: Mapped[list["OrgMember"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    projects: Mapped[list[Project]] = relationship(
+        back_populates="organization",
+        lazy="selectin",
+    )
+
+
+class OrgMember(Base):
+    __tablename__ = "org_members"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+    organization: Mapped[Organization] = relationship(back_populates="members")
 
 
 class Dependency(Base):

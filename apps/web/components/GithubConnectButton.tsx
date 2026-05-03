@@ -23,9 +23,10 @@ export function GithubConnectButton({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-2">
       <Button onClick={onConnect} disabled={loading}>
-        {loading ? "Redirecting…" : "Connect GitHub"}
+        {loading ? "Redirecting..." : "Connect GitHub"}
       </Button>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
+

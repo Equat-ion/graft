@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +30,7 @@ from backend.agent.session import AgentSession, set_active_session
 from backend.config import get_settings
 from backend.db.models import AgentRun, Dependency, Project, RunStatus
 from backend.db.session import SessionLocal
+from backend.services.repo_bootstrap import bootstrap_github_repo
 from backend.sandbox.runner import SandboxRunner
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ def _emit_step_callback(run_id: uuid.UUID, loop: asyncio.AbstractEventLoop):
 
 async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
     settings = get_settings()
+    bootstrap_workspace_root: Path | None = None
 
     async with SessionLocal() as session:
         run = await session.get(AgentRun, run_id)
@@ -91,6 +94,37 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         repo_path = Path(project.repo_path)
         language = project.language.value
         dep_name = dep.name
+        github_repo_full_name = project.github_repo_full_name
+        github_access_token = project.github_access_token
+
+    if github_repo_full_name:
+        try:
+            bootstrap = await asyncio.to_thread(
+                bootstrap_github_repo,
+                repo_full_name=github_repo_full_name,
+                run_id=run_id,
+                access_token=github_access_token,
+                image=settings.bootstrap_git_image,
+                timeout_seconds=settings.bootstrap_git_timeout_seconds,
+            )
+        except Exception as e:
+            logger.exception("Repo bootstrap failed for run %s", run_id)
+            async with SessionLocal() as session:
+                run = await session.get(AgentRun, run_id)
+                if run is not None:
+                    run.status = RunStatus.failed
+                    run.violation = f"bootstrap_failed: {type(e).__name__}"[:255]
+                    run.finished_at = datetime.now(timezone.utc)
+                    await session.commit()
+            return
+        repo_path = bootstrap.repo_path
+        bootstrap_workspace_root = bootstrap.workspace_root
+        logger.info(
+            "Run %s bootstrapped repo %s on branch %s",
+            run_id,
+            github_repo_full_name,
+            bootstrap.branch_name,
+        )
 
     sandbox = SandboxRunner(
         repo_path=repo_path,
@@ -150,6 +184,8 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
                 run.finished_at = datetime.now(timezone.utc)
                 await session.commit()
         sandbox.cleanup()
+        if bootstrap_workspace_root is not None:
+            shutil.rmtree(bootstrap_workspace_root, ignore_errors=True)
         return
 
     async with SessionLocal() as session:
@@ -182,6 +218,8 @@ async def _execute_run(app: FastAPI, run_id: uuid.UUID) -> None:
         await session.commit()
 
     sandbox.cleanup()
+    if bootstrap_workspace_root is not None:
+        shutil.rmtree(bootstrap_workspace_root, ignore_errors=True)
     logger.info(
         "Run %s finished: status=%s reward=%s steps=%d",
         run_id, run.status, run.reward, len(run.steps or []),

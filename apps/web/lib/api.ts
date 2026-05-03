@@ -7,6 +7,9 @@ import type {
   GithubRepoList,
   GithubRepoTree,
   Language,
+  Organization,
+  OrganizationCreateInput,
+  OrganizationUpdateInput,
   Project,
   ProjectListItem,
   RunStatus,
@@ -31,12 +34,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listProjects: () => request<ProjectListItem[]>("/api/projects"),
+  listProjects: (params: { orgId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.orgId) q.set("org_id", params.orgId);
+    const qs = q.toString();
+    return request<ProjectListItem[]>(`/api/projects${qs ? `?${qs}` : ""}`);
+  },
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
-  createProject: (input: { name: string; repo_path: string; language: Language }) =>
+  createProject: (input: { name: string; repo_path: string; language: Language; org_id?: string | null }) =>
     request<Project>("/api/projects", { method: "POST", body: JSON.stringify(input) }),
   deleteProject: (id: string) =>
     request<void>(`/api/projects/${id}`, { method: "DELETE" }),
+
+  listOrgs: () => request<Organization[]>("/api/orgs"),
+  getOrg: (slug: string) => request<Organization>(`/api/orgs/${slug}`),
+  createOrg: (input: OrganizationCreateInput) =>
+    request<Organization>("/api/orgs", { method: "POST", body: JSON.stringify(input) }),
+  updateOrg: (slug: string, input: OrganizationUpdateInput) =>
+    request<Organization>(`/api/orgs/${slug}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteOrg: (slug: string) =>
+    request<void>(`/api/orgs/${slug}`, { method: "DELETE" }),
 
   listRuns: (params: { project_id?: string; status?: RunStatus; limit?: number } = {}) => {
     const q = new URLSearchParams();
