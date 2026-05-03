@@ -1,3 +1,12 @@
+---
+title: Graft
+emoji: 🌿
+colorFrom: green
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
 <p align="center">
   <strong>🌿 Graft</strong><br>
   <em>Autonomous dependency upgrade agent — watches, patches, verifies</em>
