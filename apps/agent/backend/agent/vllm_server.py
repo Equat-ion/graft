@@ -27,6 +27,8 @@ def start_vllm_server() -> str:
     """Start vLLM serving the best available checkpoint. Block until healthy.
 
     Returns the OpenAI-compatible base URL.
+    Timeout is controlled by VLLM_STARTUP_TIMEOUT (default 600s) to allow
+    model downloads on first cold start.
     """
     global _proc
     model_path, source = resolve_model_path()
@@ -38,12 +40,13 @@ def start_vllm_server() -> str:
         "Starting vLLM | source=%s | model=%s | port=%s", source, model_path, port
     )
 
+    max_model_len = os.getenv("VLLM_MAX_MODEL_LEN", "4096")
     common = [
         sys.executable, "-m", "vllm.entrypoints.openai.api_server",
         "--port", str(port),
         "--host", "0.0.0.0",
         "--dtype", "bfloat16",
-        "--max-model-len", "4096",
+        "--max-model-len", max_model_len,
         "--gpu-memory-utilization", gpu_util,
     ]
 
@@ -62,7 +65,8 @@ def start_vllm_server() -> str:
 
     _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-    deadline = time.time() + 120
+    timeout = int(os.getenv("VLLM_STARTUP_TIMEOUT", "600"))
+    deadline = time.time() + timeout
     while time.time() < deadline:
         if _proc.poll() is not None:
             raise RuntimeError(
@@ -78,7 +82,7 @@ def start_vllm_server() -> str:
         time.sleep(2)
 
     stop_vllm_server()
-    raise RuntimeError("vLLM server failed to become healthy within 120s")
+    raise RuntimeError(f"vLLM server failed to become healthy within {timeout}s")
 
 
 def stop_vllm_server() -> None:

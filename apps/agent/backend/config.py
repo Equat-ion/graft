@@ -70,9 +70,9 @@ class Settings(BaseSettings):
         _, needs_ssl = _parse_asyncpg_url(self.database_url_raw)
         return needs_ssl
 
-    # LLM — any OpenAI-compatible endpoint
+    # LLM — vLLM OpenAI-compatible server (falls back to any OpenAI-compatible endpoint)
     llm_base_url: str = Field(
-        default="https://api.openai.com/v1",
+        default="http://localhost:8001/v1",
         alias="LLM_BASE_URL",
     )
     llm_api_key: str = Field(
@@ -80,11 +80,20 @@ class Settings(BaseSettings):
         alias="LLM_API_KEY",
     )
     llm_model: str = Field(
-        default="gpt-4o-mini",
+        default="graft-agent",
         alias="LLM_MODEL",
     )
     llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
     llm_max_tokens: int = Field(default=2048, alias="LLM_MAX_TOKENS")
+
+    # Local vLLM server (separate from agent's LLM_BASE_URL so both can coexist)
+    vllm_base_url: str = Field(default="http://localhost:8001/v1", alias="VLLM_BASE_URL")
+    vllm_model: str = Field(default="graft-agent", alias="VLLM_MODEL")
+    # Set VLLM_AUTO_START=true to launch vLLM as a subprocess at startup.
+    # Required on HF Spaces where inference and API share the same container.
+    vllm_auto_start: bool = Field(default=False, alias="VLLM_AUTO_START")
+    # Seconds to wait for vLLM to become healthy (model download on cold start can take >5 min).
+    vllm_startup_timeout: int = Field(default=600, alias="VLLM_STARTUP_TIMEOUT")
 
     # Watcher
     dep_poll_interval_minutes: int = Field(default=15, alias="DEP_POLL_INTERVAL_MINUTES")
@@ -100,7 +109,7 @@ class Settings(BaseSettings):
     # Training notebooks only
     hf_token: str | None = Field(default=None, alias="HF_TOKEN")
     training_base_model: str = Field(
-        default="Qwen/Qwen2.5-Coder-3B-Instruct",
+        default="devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft",
         alias="TRAINING_BASE_MODEL",
     )
     sft_checkpoint_dir: Path = Field(
@@ -111,6 +120,17 @@ class Settings(BaseSettings):
         default=Path("training/checkpoints/grpo"),
         alias="GRPO_CHECKPOINT_DIR",
     )
+
+    # CORS — comma-separated list of allowed origins
+    cors_origins_raw: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
+        alias="CORS_ORIGINS",
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
 
     # GitHub OAuth
     github_client_id: str = Field(default="", alias="GITHUB_CLIENT_ID")
