@@ -43,8 +43,10 @@ export const auth = betterAuth({
   ],
   trustedOrigins: [
     process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    process.env.NEXT_PUBLIC_APP_URL ?? "",
     "https://graft-wraap.vercel.app",
-  ],
+    "https://devaanshpathakhf-graft-backend.hf.space",
+  ].filter(Boolean),
 });
 
 export type Session = typeof auth.$Infer.Session;
