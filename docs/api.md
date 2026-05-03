@@ -2,8 +2,12 @@
 
 > Full REST API reference for the Graft backend.
 
-**Base URL:** `http://localhost:8000`  
+**Base URL (local):** `http://localhost:8000`
+**Base URL (production):** `https://<user>-graft-backend.hf.space/backend`
 **Interactive docs:** `http://localhost:8000/docs` (Swagger UI)
+
+> [!NOTE]
+> In production, Nginx on port 7860 routes `/backend/*` to the FastAPI server. The Next.js frontend handles all other paths.
 
 ---
 
@@ -15,7 +19,11 @@ Health check endpoint.
 
 **Response** `200`
 ```json
-{"status": "ok"}
+{
+  "status": "ok",
+  "llm_model": "graft-agent",
+  "llm_base_url": "http://localhost:8001/v1"
+}
 ```
 
 ---
@@ -193,7 +201,7 @@ Cancel a pending or running agent run.
 
 **Response** `200` — The updated run object (status set to `failed`, violation set to `cancelled_by_user`)
 
-**Error** `404` — Run not found  
+**Error** `404` — Run not found
 **Error** `409` — Run is not in a cancellable state
 
 ---
@@ -336,6 +344,30 @@ Creates a pull request for the selected repository.
 
 ---
 
+## Sandbox
+
+### `POST /api/sandbox/run-tests`
+
+Run tests in the sandbox for a given project.
+
+### `GET /api/sandbox/status`
+
+Get sandbox status and availability.
+
+---
+
+## Inference
+
+### `POST /api/inference/chat`
+
+Send a chat completion request to the LLM backend (proxied through the agent).
+
+### `GET /api/inference/model`
+
+Get information about the currently loaded model.
+
+---
+
 ## Enums
 
 ### Language
@@ -385,4 +417,4 @@ There is no WebSocket endpoint — polling is sufficient given the step cadence 
 
 ## CORS
 
-The backend allows requests from `http://localhost:3000` (the frontend dev server). In production, configure `allow_origins` in `backend/main.py`.
+The backend reads `CORS_ORIGINS` (comma-separated) and configures `CORSMiddleware` with `allow_credentials=True`. Default origins: `http://localhost:3000,http://localhost:3001`. In production, set this to the Vercel/HF Spaces URL.

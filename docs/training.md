@@ -109,7 +109,7 @@ Each line in `trajectories.jsonl` is:
 
 | Parameter | Value |
 |-----------|-------|
-| Base model | `Qwen/Qwen2.5-Coder-3B-Instruct` |
+| Base model | `devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft` |
 | Trainer | `SFTTrainer` (TRL) |
 | Epochs | 3 |
 | Batch size | 8 (effective 32 with gradient accumulation) |
@@ -195,7 +195,7 @@ After training, vLLM automatically picks the best available checkpoint:
 |----------|--------|-----------|
 | 1st | GRPO | `training/checkpoints/grpo/batch_{highest}/` |
 | 2nd | SFT | `training/checkpoints/sft/` |
-| 3rd | Base | HuggingFace Hub (`Qwen/Qwen2.5-Coder-3B-Instruct`) |
+| 3rd | Base | HuggingFace Hub (`devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft`) |
 
 The selection logic is in `backend/agent/model_loader.py`. Override with `FORCE_MODEL_SOURCE=base|sft|grpo`.
 

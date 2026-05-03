@@ -4,29 +4,41 @@ Production deployment for Graft:
 
 | Component | Platform | Purpose |
 |-----------|----------|---------|
-| Backend + Inference | [Hugging Face Spaces](https://huggingface.co/spaces) (Docker, 1× L4) | FastAPI + vLLM + agent worker + watcher |
-| Frontend | [Vercel](https://vercel.com) | Next.js 16 dashboard |
+| Full stack | [Hugging Face Spaces](https://huggingface.co/spaces) (Docker, 1× L4) | Nginx + Next.js + FastAPI + vLLM + agent worker + watcher |
 | Database | [Neon](https://neon.tech) | PostgreSQL (free tier) |
+
+> [!NOTE]
+> In the current deployment model, **everything runs in a single container** on HF Spaces. The root `Dockerfile` builds Next.js in a builder stage, then combines it with the Python backend. Nginx on port 7860 routes `/backend/*` to FastAPI (:8000) and everything else to Next.js (:3000).
 
 ---
 
 ## Architecture overview
 
 ```
-┌──────────────┐     HTTPS      ┌───────────────────────────────────────┐
-│  Vercel CDN  │◄──────────────►│  HF Spaces — 1× NVIDIA L4 (24 GB)    │
-│  (frontend)  │                │                                        │
-└──────┬───────┘                │  ┌─────────────────┐  localhost:8001  │
-       │ SSR / API routes       │  │  FastAPI :7860  │◄───────────────► │
-       │ (Better Auth, DB)      │  │  agent worker   │  ┌─────────────┐ │
-       │                        │  │  dep watcher    │  │ vLLM :8001  │ │
-┌──────────────┐                │  └─────────────────┘  │ graft-agent │ │
-│  Neon PG     │◄───────────────│         asyncpg+SSL   └─────────────┘ │
-│  (database)  │                └───────────────────────────────────────┘
-└──────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  HF Spaces — 1× NVIDIA L4 (24 GB)                               │
+│                                                                  │
+│  ┌─────────────────┐                                             │
+│  │  Nginx :7860    │                                             │
+│  │  (public port)  │                                             │
+│  └──────┬──────────┘                                             │
+│         │                                                        │
+│    /backend/*  ──► FastAPI :8000 (agent worker, dep watcher)     │
+│    /*          ──► Next.js :3000 (dashboard, auth, webhooks)     │
+│                                                                  │
+│  ┌─────────────┐                                                 │
+│  │ vLLM :8001  │ ◄── localhost only, not exposed                 │
+│  │ graft-agent │                                                 │
+│  └─────────────┘                                                 │
+│                                                                  │
+│  ┌──────────────┐                                                │
+│  │ Neon PG      │ ◄── asyncpg+SSL (backend)                     │
+│  │ (external)   │ ◄── @neondatabase/serverless (frontend)        │
+│  └──────────────┘                                                │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-vLLM runs **inside the same container** on port 8001. FastAPI is exposed on port 7860 (required by HF Spaces). The agent worker calls vLLM over localhost — no external LLM API is used.
+vLLM runs **inside the same container** on port 8001. Nginx is exposed on port 7860 (required by HF Spaces). The agent worker calls vLLM over localhost — no external LLM API is used.
 
 ---
 
@@ -35,7 +47,6 @@ vLLM runs **inside the same container** on port 8001. FastAPI is exposed on port
 | Requirement | Where to get it |
 |---|---|
 | Hugging Face account | [huggingface.co](https://huggingface.co) |
-| Vercel account | [vercel.com](https://vercel.com) |
 | Neon Postgres database | [neon.tech](https://neon.tech) (free tier) |
 | GitHub App | GitHub → Settings → Developer settings → GitHub Apps |
 
@@ -47,16 +58,16 @@ vLLM runs **inside the same container** on port 8001. FastAPI is exposed on port
 2. Copy the **pooled connection string** (hostname contains `-pooler`)
 3. You need two variants:
    - **Backend** (asyncpg): `postgresql+asyncpg://user:pass@...neon.tech/dbname?sslmode=require`
-   - **Frontend** (pg/node): `postgresql://user:pass@...neon.tech/dbname?sslmode=require`
+   - **Frontend** (Neon serverless driver): `postgresql://user:pass@...neon.tech/dbname?sslmode=require`
 
 > [!IMPORTANT]
-> The backend strips `sslmode` / `channel_binding` from the URL and handles SSL via `connect_args`. You can paste the Neon URL as-is.
+> The backend strips `sslmode` / `channel_binding` from the URL and handles SSL via `connect_args`. You can paste the Neon URL as-is. The frontend uses `@neondatabase/serverless` which handles SSL natively.
 
 ---
 
-## Step 2 — Backend + Inference on Hugging Face Spaces
+## Step 2 — Deploy to Hugging Face Spaces
 
-Everything — FastAPI, the agent worker, the dependency watcher, and vLLM — runs in a single Docker container on an L4 GPU Space.
+Everything — Nginx, Next.js, FastAPI, the agent worker, the dependency watcher, and vLLM — runs in a single Docker container on an L4 GPU Space.
 
 ### 2.1 Create the Space
 
@@ -69,52 +80,64 @@ Everything — FastAPI, the agent worker, the dependency watcher, and vLLM — r
 
 ### 2.2 Dockerfile
 
-The `apps/agent/Dockerfile` is already set up for this deployment. Key points:
+The root `Dockerfile` is a multi-stage build:
 
+**Stage 1 — Web builder:**
+- Base image: `node:20-slim`
+- Runs `npm ci` + `npm run build` for the Next.js app
+- Build-time `ARG`s bake in `NEXT_PUBLIC_*` env vars
+- Sets `DATABASE_URL=postgresql://placeholder` so `neon()` doesn't crash at build time (the `db` module uses lazy initialisation via a Proxy)
+
+**Stage 2 — Runtime:**
 - Base image: `pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime` (Python 3.11 + CUDA 12.1)
-- Installs the app with `pip install -e .[inference]` which includes vLLM and PyTorch
+- Installs system deps: `build-essential`, `git`, `nginx`, Node.js 20
+- Installs the Python backend with `pip install -e .[inference]`
+- Copies built Next.js artefacts from the builder stage
+- Copies `deploy/nginx.conf` and `deploy/entrypoint.sh`
 - Exposes port **7860** (HF Spaces requirement)
-- Sets `HF_HOME=/data/.hf_cache` so model weights are cached on the persistent `/data` volume across restarts
 
-```dockerfile
-FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
-# ... see apps/agent/Dockerfile
-EXPOSE 7860
-CMD ["sh", "-c", "alembic upgrade head && uvicorn backend.main:app --host 0.0.0.0 --port 7860"]
+### 2.3 Entrypoint and services
+
+The `deploy/entrypoint.sh` starts three processes:
+
+1. **`alembic upgrade head`** — applies pending DB migrations
+2. **Nginx** on :7860 — reverse proxy
+3. **Next.js** on :3000 — `next start` (production server)
+4. **FastAPI** on :8000 — `uvicorn backend.main:app`
+
+FastAPI's lifespan hook then:
+- Detects `VLLM_AUTO_START=true` and launches vLLM as a subprocess on :8001
+- Starts the agent worker and dependency watcher once vLLM is healthy
+
+### 2.4 Nginx routing
+
+```
+/backend/*  →  http://localhost:8000/  (prefix stripped)
+/*          →  http://localhost:3000   (Next.js)
 ```
 
-### 2.3 Startup sequence
+This means the frontend's `NEXT_PUBLIC_AGENT_URL` should be set to `https://<space-url>/backend` in production.
 
-When the container starts:
+### 2.5 Push to the Space
 
-1. `alembic upgrade head` — applies any pending DB migrations
-2. FastAPI starts on `:7860` — health endpoint immediately available
-3. Lifespan hook detects `VLLM_AUTO_START=true` and launches vLLM as a subprocess on `:8001`
-4. vLLM downloads `devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft` (~6 GB, cached after first boot) and loads it into GPU memory
-5. Agent worker and dependency watcher start once vLLM is healthy
-
-**First cold start** takes 10–15 min (model download). Subsequent restarts take ~2–3 min (weights load from `/data/.hf_cache`).
-
-### 2.4 Push to the Space
-
-**Option A — Manual push (one-off):**
+**Option A — Git remote:**
 
 ```bash
-git clone https://huggingface.co/spaces/<your-user>/graft-backend
-cp -r /path/to/graft/apps/agent/* graft-backend/
-cd graft-backend
-git add . && git commit -m "deploy" && git push
+# Add HF as a remote
+git remote add hf https://huggingface.co/spaces/<your-user>/graft-backend
+
+# Push
+git push hf main
 ```
 
 **Option B — GitHub Action (auto-deploy on push):**
 
 ```yaml
 # .github/workflows/deploy-backend.yml
-name: Deploy backend to HF Spaces
+name: Deploy to HF Spaces
 on:
   push:
     branches: [main]
-    paths: [apps/agent/**]
 
 jobs:
   deploy:
@@ -125,11 +148,10 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           hf_token: ${{ secrets.HF_TOKEN }}
-          space_id: ${{ secrets.HF_SPACE_ID }}   # e.g. "youruser/graft-backend"
-          subdirectory: apps/agent
+          space_id: ${{ secrets.HF_SPACE_ID }}
 ```
 
-### 2.5 Environment variables
+### 2.6 Environment variables (HF Spaces)
 
 In the Space settings (Settings → Variables and secrets):
 
@@ -139,9 +161,17 @@ In the Space settings (Settings → Variables and secrets):
 | `VLLM_AUTO_START` | `true` | Variable |
 | `LLM_BASE_URL` | `http://localhost:8001/v1` | Variable |
 | `LLM_MODEL` | `graft-agent` | Variable |
+| `LLM_API_KEY` | *(empty or set for external LLM)* | Secret |
 | `TRAINING_BASE_MODEL` | `devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft` | Variable |
-| `CORS_ORIGINS` | `https://<your-project>.vercel.app,http://localhost:3000` | Variable |
-| `HF_TOKEN` | Your HF read token (if the model repo is private) | Secret |
+| `CORS_ORIGINS` | `https://<space-url>,http://localhost:3000` | Variable |
+| `HF_TOKEN` | Your HF read token (if model repo is private) | Secret |
+| `BETTER_AUTH_SECRET` | Random 32+ char string | Secret |
+| `BETTER_AUTH_URL` | `https://<space-url>` | Variable |
+| `GITHUB_APP_ID` | GitHub App ID | Variable |
+| `GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID | Secret |
+| `GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret | Secret |
+| `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret | Secret |
+| `NEXT_PUBLIC_GITHUB_APP_SLUG` | GitHub App slug | Variable |
 | `DEP_POLL_INTERVAL_MINUTES` | `15` | Variable |
 | `AGENT_MAX_STEPS` | `50` | Variable |
 | `VLLM_GPU_UTIL` | `0.85` | Variable |
@@ -150,76 +180,40 @@ In the Space settings (Settings → Variables and secrets):
 > [!NOTE]
 > `VLLM_STARTUP_TIMEOUT=900` gives 15 minutes for the first cold-start download. After the weights are cached you can lower this to `300`.
 
-### 2.6 Verify
+### 2.7 GitHub App callback URLs
+
+GitHub App → Settings → Callback URL:
+```
+https://<space-url>/api/auth/callback/github
+```
+
+GitHub App → Settings → Webhook URL:
+```
+https://<space-url>/api/github/webhook
+```
+
+### 2.8 Verify
 
 Once the Space shows **Running** (not Building or Sleeping):
 
 ```bash
 # Health check
-curl https://<user>-graft-backend.hf.space/health
+curl https://<space-url>/backend/health
 # → {"status": "ok", "llm_model": "graft-agent", "llm_base_url": "http://localhost:8001/v1"}
 
 # Swagger UI
-https://<user>-graft-backend.hf.space/docs
+https://<space-url>/backend/docs
 ```
-
----
-
-## Step 3 — Frontend on Vercel
-
-### 3.1 Import the project
-
-1. Go to [vercel.com/new](https://vercel.com/new)
-2. Import your GitHub repo
-3. Set **Root Directory** to `apps/web`
-
-### 3.2 Environment variables
-
-In Vercel → Project → Settings → Environment Variables:
-
-| Variable | Value | Notes |
-|---|---|---|
-| `NEXT_PUBLIC_AGENT_URL` | `https://<user>-graft-backend.hf.space` | No trailing slash |
-| `NEXT_PUBLIC_APP_URL` | `https://<your-project>.vercel.app` | |
-| `BETTER_AUTH_URL` | `https://<your-project>.vercel.app` | |
-| `BETTER_AUTH_SECRET` | Random 32+ char string | `openssl rand -base64 32` |
-| `DATABASE_URL` | `postgresql://user:pass@...neon.tech/dbname?sslmode=require` | **`pg` driver, not `asyncpg`** |
-| `GITHUB_APP_ID` | GitHub App ID | |
-| `GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID | |
-| `GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret | |
-| `GITHUB_WEBHOOK_SECRET` | GitHub webhook secret | |
-| `NEXT_PUBLIC_GITHUB_APP_SLUG` | GitHub App slug | |
-
-### 3.3 GitHub App callback URLs
-
-GitHub App → Settings → Callback URL:
-```
-https://<your-project>.vercel.app/api/auth/callback/github
-```
-
-GitHub App → Settings → Setup URL (post-installation redirect):
-```
-https://<your-project>.vercel.app/api/github/callback
-```
-
-GitHub App → Settings → Webhook URL:
-```
-https://<your-project>.vercel.app/api/github/webhook
-```
-
-### 3.4 Deploy
-
-Push to `main` — Vercel builds and deploys automatically.
 
 ---
 
 ## Post-deploy checklist
 
 - [ ] Space hardware is set to **GPU: L4** (not CPU)
-- [ ] `GET /health` returns `200` with `llm_base_url: http://localhost:8001/v1`
+- [ ] `GET /backend/health` returns `200` with `llm_base_url: http://localhost:8001/v1`
 - [ ] Space logs show `vLLM ready at http://localhost:8001/v1`
 - [ ] Space logs show `Scheduler started`
-- [ ] Frontend login page loads
+- [ ] Frontend login page loads at the Space URL
 - [ ] GitHub OAuth sign-in completes
 - [ ] Create an organisation and project — dependency table populates
 - [ ] "Check now" triggers an agent run that reaches `running` status
@@ -229,15 +223,16 @@ Push to `main` — Vercel builds and deploys automatically.
 
 ## Environment variable reference
 
-### Backend (HF Spaces)
+### All-in-one container (HF Spaces)
 
 ```env
-# Database
+# Database (backend — asyncpg)
 DATABASE_URL=postgresql+asyncpg://user:pass@host-pooler.neon.tech/dbname?sslmode=require
 
 # Inference — vLLM starts as a subprocess; these point to it
 VLLM_AUTO_START=true
 LLM_BASE_URL=http://localhost:8001/v1
+LLM_API_KEY=
 LLM_MODEL=graft-agent
 LLM_TEMPERATURE=0.2
 LLM_MAX_TOKENS=2048
@@ -251,7 +246,7 @@ VLLM_STARTUP_TIMEOUT=900
 HF_TOKEN=hf_...
 
 # CORS
-CORS_ORIGINS=https://<your-project>.vercel.app,http://localhost:3000
+CORS_ORIGINS=https://<space-url>,http://localhost:3000
 
 # Watcher & sandbox
 DEP_POLL_INTERVAL_MINUTES=15
@@ -259,16 +254,12 @@ AGENT_MAX_STEPS=50
 SANDBOX_CPU_COUNT=2
 SANDBOX_MEMORY_MB=2048
 SANDBOX_TEST_TIMEOUT_SECONDS=120
-```
 
-### Frontend (Vercel / apps/web/.env.local)
-
-```env
-NEXT_PUBLIC_AGENT_URL=https://<user>-graft-backend.hf.space
-NEXT_PUBLIC_APP_URL=https://<your-project>.vercel.app
-BETTER_AUTH_URL=https://<your-project>.vercel.app
+# Auth (Next.js runtime)
 BETTER_AUTH_SECRET=<random-32-chars>
-DATABASE_URL=postgresql://user:pass@host-pooler.neon.tech/dbname?sslmode=require
+BETTER_AUTH_URL=https://<space-url>
+
+# GitHub App (Next.js runtime)
 GITHUB_APP_ID=...
 GITHUB_APP_CLIENT_ID=...
 GITHUB_APP_CLIENT_SECRET=...
@@ -284,6 +275,10 @@ NEXT_PUBLIC_GITHUB_APP_SLUG=...
 
 Large base image (`pytorch/pytorch`) takes 10–15 min to pull on first build. This is normal.
 
+### Build fails with `neon()` connection string error
+
+The Next.js builder stage needs `DATABASE_URL=postgresql://placeholder` set as a build-time env var (already configured in the root Dockerfile). The `db` module uses a Proxy-based lazy singleton so `neon()` is only called at request time, not at build time.
+
 ### `/health` returns 200 but agent runs immediately fail
 
 vLLM is still loading. Check Space logs for `vLLM ready at http://localhost:8001/v1`. The worker only starts after vLLM is healthy, so this shouldn't happen in practice — but if you hit the `VLLM_STARTUP_TIMEOUT` before the model finishes loading, increase it.
@@ -298,26 +293,25 @@ The model download (~6 GB) timed out. Options:
 
 The L4 has 24 GB VRAM. The 3B model uses ~8 GB, leaving 16 GB for KV cache at `gpu_memory_utilization=0.85`. If you OOM:
 - Lower `VLLM_GPU_UTIL` to `0.75`
-- Add `VLLM_MAX_MODEL_LEN=2048` (the server reads `VLLM_MAX_MODEL_LEN` and passes it as `--max-model-len`)
-
-Actually, to support `VLLM_MAX_MODEL_LEN`, set it and it will be picked up because the server already reads `os.getenv("VLLM_MAX_MODEL_LEN")` — see `vllm_server.py`.
+- Set `VLLM_MAX_MODEL_LEN=2048` (the server reads this env var and passes it as `--max-model-len`)
 
 ### 401 on all API calls from frontend
 
-- Verify `CORS_ORIGINS` in HF Spaces includes the exact Vercel URL with `https://`
+- Verify `CORS_ORIGINS` includes the exact Space URL with `https://`
 - `allow_credentials=True` is set in CORS middleware — ensure the frontend sends `credentials: "include"`
 
 ### Space sleeps (free tier)
 
 Free GPU Spaces sleep after ~15 min of no traffic. Options:
 1. Upgrade to a persistent Space (paid)
-2. Ping `/health` every 10 min with an external cron (e.g. [cron-job.org](https://cron-job.org))
+2. Ping `/backend/health` every 10 min with an external cron (e.g. [cron-job.org](https://cron-job.org))
 3. Accept the ~3 min cold start on first request after sleep
 
 ### Neon connection errors
 
 - Neon free tier suspends after 5 min idle; first request after suspension takes ~1–2 s — normal
-- Never remove `sslmode=require` from the Neon URL
+- The backend auto-strips `sslmode` from the URL and uses SSL via `connect_args` — you don't need to modify the Neon URL
+- `prepared_statement_cache_size=0` is set automatically for PgBouncer compatibility
 
 ---
 
@@ -325,9 +319,28 @@ Free GPU Spaces sleep after ~15 min of no traffic. Options:
 
 | Aspect | Local | Production |
 |---|---|---|
-| Frontend | `cd apps/web && npm run dev` on `:3000` | Vercel |
-| Backend | `uvicorn backend.main:app --reload` on `:8000` | HF Spaces on `:7860` |
+| Frontend | `cd apps/web && npm run dev` on `:3000` | Same container via Next.js production server on `:3000` |
+| Backend | `uvicorn backend.main:app --reload` on `:8000` | Same container on `:8000` |
+| Proxy | N/A (direct access to :3000 and :8000) | Nginx on `:7860` |
 | Inference | `vllm serve ...` on `:8001` separately | Same container, auto-started via `VLLM_AUTO_START=true` |
 | `VLLM_AUTO_START` | `false` (default) | `true` |
 | `LLM_BASE_URL` | `http://localhost:8001/v1` (default) | `http://localhost:8001/v1` |
 | Database | Local Postgres or Neon | Neon |
+
+### Docker Compose (local dev)
+
+```bash
+docker compose up --build
+```
+
+This starts four services:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| `db` | 5433 | PostgreSQL 16 |
+| `backend` | 8000 | FastAPI with hot-reload |
+| `frontend` | 3000 | Next.js dev server |
+| `jupyter` | 8888 | Training notebooks |
+
+> [!NOTE]
+> The local docker-compose uses the standalone agent Dockerfile (`apps/agent/Dockerfile`) and a simple frontend setup, not the production monolith Dockerfile at the repo root.

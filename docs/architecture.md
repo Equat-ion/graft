@@ -10,7 +10,7 @@ Graft is a closed-loop autonomous system for dependency upgrades. It consists of
 
 ```mermaid
 graph TB
-    subgraph Frontend["Dashboard (Next.js 15)"]
+    subgraph Frontend["Dashboard (Next.js 16)"]
         UI[Web UI]
     end
 
@@ -22,7 +22,7 @@ graph TB
     end
 
     subgraph Storage
-        DB[(PostgreSQL)]
+        DB[(Neon PostgreSQL)]
     end
 
     subgraph Sandbox["Sandbox (Docker)"]
@@ -30,7 +30,8 @@ graph TB
     end
 
     UI -->|HTTP| API
-    API -->|CRUD| DB
+    UI -->|Drizzle ORM| DB
+    API -->|SQLAlchemy async| DB
     Watcher -->|poll PyPI/npm| Internet["Package Registries"]
     Watcher -->|create AgentRun| DB
     Worker -->|claim pending runs| DB
@@ -39,6 +40,32 @@ graph TB
     Container -->|test results| Worker
     Worker -->|persist results| DB
 ```
+
+### Production deployment (HF Spaces)
+
+In production, everything runs inside a single Docker container on HF Spaces with an Nginx reverse proxy on port 7860:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  HF Spaces — NVIDIA L4 (24 GB)                                  │
+│                                                                  │
+│  ┌──────────────┐                                                │
+│  │ Nginx :7860  │ ──/backend/──► FastAPI :8000                   │
+│  │              │ ──/──────────► Next.js :3000                   │
+│  └──────────────┘                                                │
+│                      ┌─────────────┐   ┌─────────────────────┐   │
+│                      │ vLLM :8001  │   │  Agent Worker +     │   │
+│                      │ graft-agent │   │  Dep Watcher        │   │
+│                      └─────────────┘   └─────────────────────┘   │
+│                                                                  │
+│  ┌──────────────┐                                                │
+│  │ Neon PG      │◄──────── asyncpg+SSL (backend)                 │
+│  │ (external)   │◄──────── @neondatabase/serverless (frontend)   │
+│  └──────────────┘                                                │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The root `Dockerfile` builds Next.js in a builder stage, then combines it with the Python backend, Nginx, and an `entrypoint.sh` that starts all services.
 
 ---
 
@@ -86,6 +113,8 @@ erDiagram
         datetime finished_at "nullable"
     }
 ```
+
+The frontend (Next.js) has its own Drizzle ORM schema in `apps/web/lib/db/schema.ts` that includes Better Auth tables (user, session, account, verification, organisation, member, invitation) plus an application-level `dependency` table for webhook-driven updates.
 
 ### StepRecord (denormalised in `AgentRun.steps` JSON)
 
@@ -208,35 +237,76 @@ Tools are defined as LangChain `StructuredTool` objects with Pydantic arg schema
 **Checkpoint priority** (`backend/agent/model_loader.py`):
 1. GRPO — scan `GRPO_CHECKPOINT_DIR` for `batch_*/` directories, pick highest-numbered one with `adapter_config.json` or `config.json`
 2. SFT — check `SFT_CHECKPOINT_DIR` for a valid checkpoint
-3. Base — fall back to `TRAINING_BASE_MODEL` (HuggingFace Hub)
+3. Base — fall back to `TRAINING_BASE_MODEL` (default: `devaanshpa/Qwen2.5-Coder-3B-Instruct-Graft`)
 
 Can be overridden with `FORCE_MODEL_SOURCE`.
 
 **vLLM server** (`backend/agent/vllm_server.py`):
-- Started as a child process during FastAPI lifespan
+- Started as a child process during FastAPI lifespan when `VLLM_AUTO_START=true`
 - For LoRA checkpoints (SFT/GRPO): passes `--enable-lora --lora-modules graft-agent={path}` on top of the base model
 - For base model: passes `--served-model-name graft-agent`
-- Health-checked with a 120-second deadline
-- URL stored on `app.state.vllm_url`
+- Health-checked with a configurable deadline (`VLLM_STARTUP_TIMEOUT`, default 600s)
 
-### 7. Frontend
+### 7. Backend API routers
 
-The Next.js 15 dashboard provides three pages:
+The FastAPI backend registers six routers:
 
-| Page | Path | Key features |
-|------|------|-------------|
-| Dashboard | `/` | Summary cards, recent runs table, register project button |
-| Project detail | `/projects/[id]` | Metadata, dependency table, run history, "Check now" button |
-| Run detail | `/runs/[id]` | Step trace timeline (polls every 2s while running), test results, violation banner |
+| Router module | Prefix | Purpose |
+|---------------|--------|---------|
+| `projects.py` | `/api/projects` | CRUD for watched projects |
+| `runs.py` | `/api/runs` | List/get/cancel agent runs |
+| `deps.py` | `/api/deps` | List deps, trigger immediate check |
+| `github.py` | `/api/github` | GitHub OAuth flow, repo browsing, branches, commits, PRs |
+| `sandbox.py` | `/api/sandbox` | Sandbox test execution endpoints |
+| `inference.py` | `/api/inference` | Direct LLM inference / model info |
 
-**Data fetching**: SWR with typed `fetcher` function. Active runs are polled via `refreshInterval: 2000`.
+### 8. Database session (Neon-specific tuning)
 
-**Components**:
-- `StatusBadge` — colour-coded status indicator
-- `RewardScore` — green (≥0.8), amber (0.4–0.8), red (<0.4)
-- `StepTrace` — vertical timeline of tool calls with expandable results
-- `VersionBadge` — arrow between versions
-- `RegisterProjectForm` — slide-over form with validation
+The backend DB session (`backend/db/session.py`) uses Neon-specific configuration:
+
+- **`prepared_statement_cache_size=0`** — Required for Neon's PgBouncer in transaction mode
+- **SSL via `connect_args`** — asyncpg doesn't support `sslmode` in the DSN; SSL context is created programmatically
+- **Pool tuning** — `pool_pre_ping=True`, `pool_size=5`, `max_overflow=10`, `pool_recycle=300` (Neon drops idle connections)
+
+The `config.py` Settings class strips `sslmode`, `ssl`, and `channel_binding` from the DATABASE_URL since asyncpg can't handle them, and exposes a `database_requires_ssl` computed field.
+
+### 9. Frontend
+
+The Next.js 16 dashboard uses Better Auth for authentication with multi-tenant organisation support.
+
+**Route structure**:
+
+| Route | Description |
+|-------|-------------|
+| `/` | Public landing page |
+| `/auth/login` | Sign-in (email/password + GitHub OAuth) |
+| `/auth/signup` | Sign-up |
+| `/dashboard` | Authenticated dashboard |
+| `/org/new` | Create organisation |
+| `/org/[slug]` | Organisation overview |
+| `/org/[slug]/projects/new` | Create project form |
+| `/org/[slug]/projects/[projectId]` | Project detail |
+
+**API Route Handlers** (Next.js):
+
+| Route | Purpose |
+|-------|---------|
+| `/api/auth/[...all]` | Better Auth handler |
+| `/api/github/callback` | GitHub App installation callback |
+| `/api/github/repos` | List accessible repos |
+| `/api/github/webhook` | GitHub App webhook events |
+| `/api/webhooks/npm` | npm registry webhook receiver |
+| `/api/webhooks/agent` | Agent job completion callbacks |
+| `/api/cron/pypi` | Cron trigger to poll PyPI |
+| `/api/projects` | List/create projects (proxies to agent backend) |
+
+**Auth guard**: `proxy.ts` protects all routes except public paths and API handlers using `getSessionCookie` from Better Auth.
+
+**Database**: Neon PostgreSQL via `@neondatabase/serverless` + Drizzle ORM. The `db` singleton in `lib/db/index.ts` uses a **Proxy-based lazy initialisation** pattern so that `neon()` is only called at request time, not during `next build` when `DATABASE_URL` is unavailable.
+
+**Components**: `app-nav.tsx` (navigation + org switcher), `icons.tsx` (brand icons), plus shadcn/ui primitives in `components/ui/`.
+
+**Data fetching**: SWR with typed `fetcher` function. `lib/agent-client.ts` wraps all calls to the FastAPI backend (base URL from `NEXT_PUBLIC_AGENT_URL`).
 
 ---
 
@@ -277,9 +347,11 @@ sequenceDiagram
 
 ## Security model
 
-1. **No external LLM calls.** All inference is local via vLLM.
+1. **No external LLM calls.** All inference is local via vLLM (in production).
 2. **Workspace isolation.** Each run gets a temp directory; path traversal is blocked.
 3. **Immutable tests.** Test files are restored from the original before final evaluation.
 4. **Resource limits.** Sandbox containers are CPU/memory capped.
 5. **No hardcoded secrets.** All credentials flow through env vars via `pydantic-settings`.
 6. **Docker socket.** The backend requires the Docker socket for sandbox execution — in production, consider a dedicated sandbox service.
+7. **Auth guard.** Frontend routes are protected by Better Auth session cookies via `proxy.ts`.
+8. **Nginx reverse proxy.** In production, Nginx on port 7860 routes `/backend/*` to FastAPI and everything else to Next.js.

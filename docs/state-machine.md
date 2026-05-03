@@ -16,15 +16,15 @@ The state is a dict with these key fields:
 
 ## Flow
 
-```
+```mermaid
 graph TD
   START --> agent
   agent --> tools
   agent --> reward
   agent --> violation
   tools --> agent
-  reward --> END
-  violation --> END
+  reward --> END_NODE["END"]
+  violation --> END_NODE
 ```
 
 ## Routing rules
