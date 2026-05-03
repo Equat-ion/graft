@@ -9,9 +9,22 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# config.py lives at apps/agent/backend/config.py — go up 4 levels to repo root
-_REPO_ROOT = Path(__file__).parent.parent.parent.parent
-_ENV_FILE = _REPO_ROOT / ".env"
+# Walk up from config.py to find the repo root .env file.
+# Works in both the monorepo (apps/agent/backend/config.py) and the
+# Docker container (/app/backend/config.py).
+def _find_env_file() -> Path:
+    cur = Path(__file__).resolve().parent
+    for _ in range(6):  # at most 6 levels up
+        candidate = cur / ".env"
+        if candidate.is_file():
+            return candidate
+        if cur == cur.parent:
+            break
+        cur = cur.parent
+    # Fall back to CWD — pydantic-settings silently ignores missing files
+    return Path.cwd() / ".env"
+
+_ENV_FILE = _find_env_file()
 
 # Query-string params that asyncpg does not accept (libpq / psycopg2 only).
 # asyncpg also maps "ssl" in the DSN to its internal sslmode parser, so we
