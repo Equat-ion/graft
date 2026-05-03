@@ -1,0 +1,32 @@
+# Python
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.venv
+**/venv
+
+# Node / Next.js
+**/node_modules
+**/.next
+**/out
+**/dist
+
+# Secrets
+**/.env
+**/.env.local
+**/.env.*
+
+# Git
+.git
+.gitignore
+
+# Docs / training (not needed for build)
+docs/
+training/
+
+# IDE
+.idea/
+.vscode/
+**/*.log
