@@ -344,6 +344,43 @@ Creates a pull request for the selected repository.
 
 ---
 
+## Agent
+
+### `POST /api/agent/github-trigger`
+
+Enqueues a GitHub-based upgrade run. Called by the Next.js frontend when the user clicks **Upgrade** on an outdated dependency.
+
+**Request body**
+```json
+{
+  "job_id": "frontend-update-job-uuid",
+  "project_id": "frontend-project-uuid",
+  "project_name": "my-app",
+  "repo_full_name": "octocat/my-app",
+  "default_branch": "main",
+  "installation_id": "12345678",
+  "dep_name": "requests",
+  "dep_ecosystem": "pypi",
+  "from_version": "2.28.0",
+  "to_version": "2.32.3",
+  "user_id": "user-id",
+  "webhook_url": "https://app.example.com/api/webhooks/agent"
+}
+```
+
+**Response** `200`
+```json
+{
+  "run_id": "agent-run-uuid",
+  "project_id": "frontend-project-uuid",
+  "job_id": "frontend-update-job-uuid"
+}
+```
+
+**Error** `409` — Upgrade run already queued or running for this dependency
+
+---
+
 ## Sandbox
 
 ### `POST /api/sandbox/run-tests`

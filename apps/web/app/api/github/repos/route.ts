@@ -2,36 +2,61 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { githubInstallation } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { githubInstallation, account, member } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import { getInstallationOctokit } from "@/lib/sync/github";
-import { createAppAuth } from "@octokit/auth-app";
-import { Octokit } from "@octokit/rest";
 
 /**
- * Queries the GitHub App API to discover all current installations,
- * upserts them into the DB associated with the given org, and returns them.
+ * Calls GitHub's user-scoped /user/installations endpoint with the user's own
+ * OAuth token, so we only see installations they personally authorised.
+ * Falls back gracefully if the user hasn't connected GitHub via OAuth.
  */
-async function discoverAndSaveInstallations(orgId: string) {
-  const privateKey = Buffer.from(
-    process.env.GITHUB_APP_PRIVATE_KEY!,
-    "base64"
-  ).toString();
+async function discoverUserInstallations(
+  userId: string,
+  orgId: string
+): Promise<{ saved: boolean; error?: string }> {
+  // Find the user's GitHub OAuth access token from the Better Auth account table
+  const [githubAccount] = await db
+    .select()
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, "github")));
 
-  const appOctokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: process.env.GITHUB_APP_ID!,
-      privateKey,
+  if (!githubAccount?.accessToken) {
+    return {
+      saved: false,
+      error:
+        "No GitHub account connected. Sign in with GitHub or install the GitHub App directly.",
+    };
+  }
+
+  const res = await fetch("https://api.github.com/user/installations", {
+    headers: {
+      Authorization: `Bearer ${githubAccount.accessToken}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
     },
   });
 
-  const { data } = await appOctokit.rest.apps.listInstallations();
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(
+      `[api/github/repos] /user/installations failed (${res.status}): ${text}`
+    );
+    return {
+      saved: false,
+      error: "Failed to list your GitHub installations. Try reconnecting GitHub.",
+    };
+  }
+
+  const data = await res.json();
+  const installations: Array<{ id: number; account: { login: string } | null }> =
+    data.installations ?? [];
+
   console.log(
-    `[api/github/repos] Discovered ${data.length} GitHub App installation(s)`
+    `[api/github/repos] Found ${installations.length} installation(s) for user ${userId}`
   );
 
-  for (const install of data) {
+  for (const install of installations) {
     await db
       .insert(githubInstallation)
       .values({
@@ -48,16 +73,13 @@ async function discoverAndSaveInstallations(orgId: string) {
       });
   }
 
-  return db
-    .select()
-    .from(githubInstallation)
-    .where(eq(githubInstallation.organizationId, orgId));
+  return { saved: installations.length > 0 };
 }
 
 /**
  * GET /api/github/repos?orgId=xxx
- * Lists all repositories accessible to the organization via its GitHub App installations.
- * Auto-discovers installations from the GitHub API if none are found in the DB.
+ * Lists repositories accessible via the org's GitHub App installations.
+ * Only discovers installations belonging to the currently logged-in user.
  */
 export async function GET(req: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -70,11 +92,22 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Missing orgId", { status: 400 });
   }
 
-  // Fail fast if GitHub App credentials are not configured
-  if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_APP_PRIVATE_KEY) {
-    console.error(
-      "[api/github/repos] Missing GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY env vars"
+  // Verify the caller is a member of this org
+  const [membership] = await db
+    .select()
+    .from(member)
+    .where(
+      and(
+        eq(member.organizationId, orgId),
+        eq(member.userId, session.user.id)
+      )
     );
+
+  if (!membership) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_APP_PRIVATE_KEY) {
     return NextResponse.json(
       {
         repos: [],
@@ -85,42 +118,45 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 1. Check DB for existing installation records
+  // 1. Check DB for installations already linked to this org
   let installations = await db
     .select()
     .from(githubInstallation)
     .where(eq(githubInstallation.organizationId, orgId));
 
-  // 2. If none found, auto-discover from the GitHub App API
+  // 2. If none found, attempt user-scoped discovery (NOT global app-level)
   if (installations.length === 0) {
     console.log(
-      `[api/github/repos] No installations in DB for org ${orgId}, discovering from GitHub API...`
+      `[api/github/repos] No installations for org ${orgId}, trying user-scoped discovery...`
     );
-    try {
-      installations = await discoverAndSaveInstallations(orgId);
-    } catch (err) {
-      console.error(
-        "[api/github/repos] Failed to discover installations:",
-        err
-      );
-      return NextResponse.json({
-        repos: [],
-        error:
-          "Failed to discover GitHub App installations. Is the app installed on your GitHub account/organization?",
-      });
+    const result = await discoverUserInstallations(session.user.id, orgId);
+
+    if (result.error && !result.saved) {
+      return NextResponse.json({ repos: [], error: result.error });
     }
+
+    installations = await db
+      .select()
+      .from(githubInstallation)
+      .where(eq(githubInstallation.organizationId, orgId));
 
     if (installations.length === 0) {
       return NextResponse.json({
         repos: [],
         error:
-          "No GitHub App installation found. Please install the GitHub App on your GitHub account or organization first.",
+          "No GitHub App installation found. Install the GitHub App on your account or organisation first.",
       });
     }
   }
 
-  // 3. Fetch repos from each installation
-  const allRepos = [];
+  // 3. Fetch repos from each installation using the App's installation token
+  const allRepos: Array<{
+    id: number;
+    full_name: string;
+    default_branch: string;
+    private: boolean;
+    installationId: string;
+  }> = [];
   const errors: string[] = [];
 
   for (const install of installations) {
@@ -153,4 +189,3 @@ export async function GET(req: NextRequest) {
     ...(errors.length > 0 && { errors }),
   });
 }
-

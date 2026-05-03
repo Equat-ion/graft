@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.agent.orchestrator import start_worker, stop_worker
-from backend.api import deps, github, inference, projects, runs, sandbox
+from backend.api import agent, deps, github, inference, projects, runs, sandbox
 from backend.config import get_settings
 from backend.watcher.scheduler import start_scheduler, stop_scheduler
 
@@ -73,6 +73,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(deps.router, prefix="/api/deps", tags=["deps"])

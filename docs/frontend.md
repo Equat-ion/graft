@@ -75,12 +75,16 @@ All existing `import { db }` call-sites work unchanged since the Proxy transpare
 |-------|---------| 
 | `/api/auth/[...all]` | Better Auth handler |
 | `/api/github/callback` | GitHub App installation callback |
-| `/api/github/repos` | List accessible repos for a GitHub installation |
+| `/api/github/repos` | List repos for the **logged-in user's** GitHub installations (user-scoped, not global) |
 | `/api/github/webhook` | GitHub App webhook events |
 | `/api/webhooks/npm` | npm registry webhook (package publish events) |
-| `/api/webhooks/agent` | Receive agent job completion callbacks |
+| `/api/webhooks/agent` | Receive agent job completion callbacks (updates `update_jobs` + `dependencies_graft`) |
 | `/api/cron/pypi` | Cron trigger to poll PyPI for updates |
-| `/api/projects` | List / create projects (proxies to agent backend) |
+| `/api/projects` | `GET ?orgId=xxx` list, `POST` create — frontend Neon DB |
+| `/api/projects/[projectId]` | `GET` project with its `dependencies` array embedded, `DELETE` project |
+| `/api/projects/[projectId]/jobs` | `GET` update jobs joined with dep name + PR link |
+| `/api/projects/[projectId]/sync` | `POST` re-run manifest sync |
+| `/api/projects/[projectId]/trigger` | `POST {depId}` queue an upgrade job → calls agent backend |
 
 ## Proxy (auth guard)
 

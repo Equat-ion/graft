@@ -4,40 +4,193 @@ import {
   dependency as dependencyTable,
   githubInstallation,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getInstallationOctokit } from "./github";
 
-/**
- * Fetches the latest version of an npm package.
- */
 async function fetchNpmLatest(name: string): Promise<string | null> {
   try {
     const res = await fetch(`https://registry.npmjs.org/${name}/latest`);
     if (!res.ok) return null;
     const data = await res.json();
-    return data.version;
+    return data.version ?? null;
   } catch {
     return null;
   }
 }
 
-/**
- * Fetches the latest version of a PyPI package.
- */
 async function fetchPyPiLatest(name: string): Promise<string | null> {
   try {
     const res = await fetch(`https://pypi.org/pypi/${name}/json`);
     if (!res.ok) return null;
     const data = await res.json();
-    return data.info.version;
+    return data.info?.version ?? null;
   } catch {
     return null;
   }
 }
 
+// ── Manifest parsers ──────────────────────────────────────────────────────────
+
+interface ParsedDep {
+  name: string;
+  version: string;
+  ecosystem: "npm" | "pypi";
+  manifestFile: string;
+}
+
+function parsePackageJson(content: string, manifestFile: string): ParsedDep[] {
+  try {
+    const pkg = JSON.parse(content);
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    return Object.entries(deps).map(([name, versionRange]) => ({
+      name,
+      version: (versionRange as string).replace(/^[\^~>=<]/, "").split(",")[0].trim(),
+      ecosystem: "npm" as const,
+      manifestFile,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function parseRequirementsTxt(content: string, manifestFile: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("-")) continue;
+    // Handle: requests==2.28.0  or  requests>=2.0,<3
+    const match = line.match(/^([A-Za-z0-9_.\-]+)\s*[=><!~]+\s*([^\s,;]+)/);
+    if (match) {
+      deps.push({
+        name: match[1].toLowerCase(),
+        version: match[2].replace(/[^0-9.]/g, "").replace(/\.$/, "") || match[2],
+        ecosystem: "pypi",
+        manifestFile,
+      });
+    }
+  }
+  return deps;
+}
+
 /**
- * Scans a project's repository for dependency manifests and populates the database.
+ * Simple section-aware TOML reader — returns the raw lines for a section.
+ * Handles both [section] and [section.subsection] headers.
  */
+function tomlSection(content: string, header: string): string[] {
+  const lines = content.split("\n");
+  const headerPattern = `[${header}]`;
+  let inSection = false;
+  const out: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === headerPattern) {
+      inSection = true;
+      continue;
+    }
+    // New top-level or sub-section header
+    if (inSection && trimmed.startsWith("[") && !trimmed.startsWith("[[")) {
+      break;
+    }
+    if (inSection) out.push(line);
+  }
+  return out;
+}
+
+function parsePyprojectToml(content: string, manifestFile: string): ParsedDep[] {
+  const deps: ParsedDep[] = [];
+
+  // PEP 621: [project] section, dependencies = ["package>=1.0", ...]
+  const projectLines = tomlSection(content, "project");
+  const pep621Block = projectLines.join("\n");
+  const depArrayMatch = pep621Block.match(/dependencies\s*=\s*\[([\s\S]*?)\]/);
+  if (depArrayMatch) {
+    for (const item of depArrayMatch[1].split(",")) {
+      const raw = item.replace(/["'\s]/g, "");
+      if (!raw) continue;
+      // "requests>=2.28" or "click~=8.0" or "flask>=2.0,<3"
+      const m = raw.match(/^([A-Za-z0-9_.\-]+)([><=!~].*)?$/);
+      if (m) {
+        const versionStr = m[2] ?? "";
+        const version = versionStr.replace(/^[><=!~]+/, "").split(",")[0] || "0";
+        deps.push({
+          name: m[1].toLowerCase().replace(/-/g, "_"),
+          version: version.replace(/[^0-9.]/g, "").replace(/\.$/, "") || version,
+          ecosystem: "pypi",
+          manifestFile,
+        });
+      }
+    }
+  }
+
+  // Poetry: [tool.poetry.dependencies] section  key = "^1.0" or key = {version = "^1.0"}
+  const poetryLines = tomlSection(content, "tool.poetry.dependencies");
+  for (const line of poetryLines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    // Skip the python version constraint
+    const kvMatch = trimmed.match(/^([A-Za-z0-9_.\-]+)\s*=\s*(.+)$/);
+    if (!kvMatch) continue;
+    const pkgName = kvMatch[1].toLowerCase().replace(/-/g, "_");
+    if (pkgName === "python") continue;
+    let rawVersion = kvMatch[2].trim();
+    // Inline table: {version = "^1.0", ...}
+    const inlineVersion = rawVersion.match(/version\s*=\s*["']([^"']+)["']/);
+    if (inlineVersion) rawVersion = inlineVersion[1];
+    // Strip quotes and leading specifiers
+    rawVersion = rawVersion.replace(/["']/g, "").replace(/^[\^~>=<]+/, "");
+    const version = rawVersion.split(",")[0].trim();
+    if (!version) continue;
+    deps.push({
+      name: pkgName,
+      version: version.replace(/[^0-9.]/g, "").replace(/\.$/, "") || version,
+      ecosystem: "pypi",
+      manifestFile,
+    });
+  }
+
+  return deps;
+}
+
+// ── Upsert helper ─────────────────────────────────────────────────────────────
+
+async function upsertDep(
+  projectId: string,
+  dep: ParsedDep,
+  latestVersion: string | null
+) {
+  const status =
+    latestVersion && latestVersion !== dep.version ? "outdated" : "up-to-date";
+
+  await db
+    .insert(dependencyTable)
+    .values({
+      projectId,
+      name: dep.name,
+      ecosystem: dep.ecosystem,
+      currentVersion: dep.version,
+      latestVersion,
+      manifestFile: dep.manifestFile,
+      status,
+      lastCheckedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        dependencyTable.projectId,
+        dependencyTable.name,
+        dependencyTable.manifestFile,
+      ],
+      set: {
+        currentVersion: dep.version,
+        latestVersion,
+        status,
+        lastCheckedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+}
+
+// ── Main sync entry point ─────────────────────────────────────────────────────
+
 export async function syncProjectDependencies(projectId: string) {
   console.log(`[sync] Starting sync for project ${projectId}`);
 
@@ -67,115 +220,57 @@ export async function syncProjectDependencies(projectId: string) {
 
   try {
     const octokit = await getInstallationOctokit(installation.installationId);
-
     const [owner, repo] = project.repoFullName.split("/");
     const branch = project.defaultBranch || "main";
 
-    // 1. Fetch root tree to find manifests
     const { data: tree } = await octokit.rest.git.getTree({
       owner,
       repo,
       tree_sha: branch,
+      recursive: "1",
     });
 
-    const manifestFiles = tree.tree.filter(
-      (item) => item.path === "package.json" || item.path === "requirements.txt"
+    const MANIFEST_FILES = [
+      "package.json",
+      "requirements.txt",
+      "requirements-dev.txt",
+      "requirements-test.txt",
+      "pyproject.toml",
+    ];
+
+    const manifestEntries = tree.tree.filter(
+      (item) => item.path && MANIFEST_FILES.includes(item.path)
     );
 
-    for (const manifestFile of manifestFiles) {
-      console.log(`[sync] Parsing manifest: ${manifestFile.path}`);
+    for (const entry of manifestEntries) {
+      const filePath = entry.path!;
+      console.log(`[sync] Parsing manifest: ${filePath}`);
 
       const { data: fileData } = await octokit.rest.repos.getContent({
         owner,
         repo,
-        path: manifestFile.path!,
+        path: filePath,
         ref: branch,
       });
 
       if (!("content" in fileData)) continue;
+      const content = Buffer.from(fileData.content, "base64").toString("utf-8");
 
-      const content = Buffer.from(fileData.content, "base64").toString();
+      let parsed: ParsedDep[] = [];
+      if (filePath === "package.json") {
+        parsed = parsePackageJson(content, filePath);
+      } else if (filePath.startsWith("requirements")) {
+        parsed = parseRequirementsTxt(content, filePath);
+      } else if (filePath === "pyproject.toml") {
+        parsed = parsePyprojectToml(content, filePath);
+      }
 
-      if (manifestFile.path === "package.json") {
-        const pkg = JSON.parse(content);
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-
-        for (const [name, versionRange] of Object.entries(deps)) {
-          const currentVersion = (versionRange as string).replace(/[\^~]/, "");
-          const latestVersion = await fetchNpmLatest(name);
-          const status =
-            latestVersion && latestVersion !== currentVersion
-              ? "outdated"
-              : "up-to-date";
-
-          await db
-            .insert(dependencyTable)
-            .values({
-              projectId: project.id,
-              name,
-              ecosystem: "npm",
-              currentVersion,
-              latestVersion,
-              manifestFile: "package.json",
-              status,
-              lastCheckedAt: new Date(),
-            })
-            .onConflictDoUpdate({
-              target: [
-                dependencyTable.projectId,
-                dependencyTable.name,
-                dependencyTable.manifestFile,
-              ],
-              set: {
-                currentVersion,
-                latestVersion,
-                status,
-                lastCheckedAt: new Date(),
-                updatedAt: new Date(),
-              },
-            });
-        }
-      } else if (manifestFile.path === "requirements.txt") {
-        const lines = content.split("\n");
-        for (const line of lines) {
-          const parts = line.split("==");
-          if (parts.length === 2) {
-            const name = parts[0].trim();
-            const currentVersion = parts[1].trim();
-            const latestVersion = await fetchPyPiLatest(name);
-            const status =
-              latestVersion && latestVersion !== currentVersion
-                ? "outdated"
-                : "up-to-date";
-
-            await db
-              .insert(dependencyTable)
-              .values({
-                projectId: project.id,
-                name,
-                ecosystem: "pypi",
-                currentVersion,
-                latestVersion,
-                manifestFile: "requirements.txt",
-                status,
-                lastCheckedAt: new Date(),
-              })
-              .onConflictDoUpdate({
-                target: [
-                  dependencyTable.projectId,
-                  dependencyTable.name,
-                  dependencyTable.manifestFile,
-                ],
-                set: {
-                  currentVersion,
-                  latestVersion,
-                  status,
-                  lastCheckedAt: new Date(),
-                  updatedAt: new Date(),
-                },
-              });
-          }
-        }
+      for (const dep of parsed) {
+        const latest =
+          dep.ecosystem === "npm"
+            ? await fetchNpmLatest(dep.name)
+            : await fetchPyPiLatest(dep.name);
+        await upsertDep(projectId, dep, latest);
       }
     }
 

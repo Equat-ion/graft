@@ -62,6 +62,8 @@ class Project(Base):
     github_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     github_access_token: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     github_repo_full_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    github_installation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    github_default_branch: Mapped[str | None] = mapped_column(String(255), nullable=True, default="main")
 
     dependencies: Mapped[list["Dependency"]] = relationship(
         back_populates="project",

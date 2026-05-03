@@ -4,7 +4,6 @@ import { use } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useListOrganizations } from "@/lib/auth-client";
-import { listAgentProjects, type AgentProjectListItem } from "@/lib/agent-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +17,17 @@ import {
   Loader2,
   ArrowRight,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+interface FrontendProject {
+  id: string;
+  name: string;
+  repoFullName: string;
+  defaultBranch: string | null;
+  lastSyncedAt: string | null;
+  createdAt: string;
+}
 
 export default function OrgPage({
   params,
@@ -31,10 +40,8 @@ export default function OrgPage({
   const org = orgs?.find((o) => o.slug === slug);
 
   const { data: projects, isLoading: projectsLoading } = useSWR<
-    AgentProjectListItem[]
-  >(org ? `projects:${org.id}` : null, () =>
-    listAgentProjects(org?.id)
-  );
+    FrontendProject[]
+  >(org?.id ? `/api/projects?orgId=${org.id}` : null, fetcher);
 
   if (orgsLoading) {
     return (
@@ -129,12 +136,14 @@ export default function OrgPage({
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Install the Graft GitHub App on your organisation to allow Graft
-                to read repositories and open pull requests.
+                Install the Graft GitHub App on your organisation to allow
+                Graft to read repositories and open pull requests.
               </p>
               <Button asChild>
                 <a
-                  href={`https://github.com/apps/${process.env.NEXT_PUBLIC_GITHUB_APP_SLUG ?? "graft-app"}/installations/new?state=${org.id}`}
+                  href={`https://github.com/apps/${
+                    process.env.NEXT_PUBLIC_GITHUB_APP_SLUG ?? "graft-app"
+                  }/installations/new?state=${org.id}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   id="btn-install-github"
@@ -154,7 +163,7 @@ function OrgProjectCard({
   project,
   orgSlug,
 }: {
-  project: AgentProjectListItem;
+  project: FrontendProject;
   orgSlug: string;
 }) {
   return (
@@ -172,11 +181,12 @@ function OrgProjectCard({
           </div>
         </CardHeader>
         <CardContent className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground truncate max-w-[140px]">
-            {project.github_repo_full_name ?? project.repo_path}
+          <p className="text-xs text-muted-foreground truncate max-w-[160px]">
+            {project.repoFullName}
           </p>
-          <Badge variant="outline" className="text-xs capitalize shrink-0">
-            {project.language}
+          <Badge variant="outline" className="text-xs shrink-0">
+            <GithubIcon className="mr-1 h-3 w-3" />
+            GitHub
           </Badge>
         </CardContent>
       </Card>

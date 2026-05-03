@@ -135,20 +135,24 @@ The frontend (Next.js) has its own Drizzle ORM schema in `apps/web/lib/db/schema
 
 ### 1. Dependency watcher
 
-The watcher runs on an APScheduler `AsyncIOScheduler` with a configurable interval (default: 15 minutes).
+There are two watchers in the system:
 
-**PyPI poller** (`backend/watcher/pypi.py`):
-- Primary: PyPI JSON API (`/pypi/{name}/json`) — parses all release versions, filters pre-releases, returns the highest stable version
-- Fallback: PyPI RSS feed (`/rss/project/{name}/releases.xml`) — parsed with `feedparser`
+**Frontend PyPI cron** (`apps/web/app/api/cron/pypi/route.ts`):
+- Polls the PyPI RSS feed every 15 minutes
+- Marks `dependencies_graft` rows as `outdated` when a new version appears
+- Does NOT automatically trigger agent runs — user clicks "Upgrade" per dep
 
-**npm poller** (`backend/watcher/npm.py`):
-- Hits the npm dist-tags endpoint (`/-/package/{name}/dist-tags`)
-- Returns the version under the `latest` tag
+**Backend APScheduler watcher** (`backend/watcher/scheduler.py`):
+- Runs on an `AsyncIOScheduler` with a configurable interval (default: 15 min)
+- **PyPI poller** (`backend/watcher/pypi.py`): PyPI JSON API primary, RSS fallback
+- **npm poller** (`backend/watcher/npm.py`): npm dist-tags endpoint
+- Targets the backend `dependencies` table (local-path projects only)
+- When a newer version is detected, creates a pending `AgentRun` automatically
 
-When a newer version is detected:
-1. `Dependency.target_version` is set
-2. A check ensures no pending/running `AgentRun` already exists for this dep
-3. A new `AgentRun` is created with `status=pending`
+When the user clicks **Upgrade** on an outdated dep:
+1. `POST /api/projects/[id]/trigger` creates an `update_job` in the frontend DB
+2. Next.js calls `POST /api/agent/github-trigger` on the FastAPI backend
+3. Backend creates/upserts a `Project` (with the same UUID as the frontend project) and `Dependency`, then creates a pending `AgentRun`
 4. The background worker picks it up
 
 ### 2. Agent worker (orchestrator)
@@ -157,12 +161,15 @@ The orchestrator (`backend/agent/orchestrator.py`) is an async background task t
 
 1. **Polls** the database every 3 seconds for pending runs
 2. **Claims** a run using `SELECT ... FOR UPDATE SKIP LOCKED` for safe concurrency
-3. **Snapshots** the repo into a temporary workspace via `SandboxRunner.prepare()`
-4. **Runs the baseline** test suite to establish pass/fail counts
-5. **Builds** a LangGraph episode with the initial state
-6. **Executes** the graph in a thread (to avoid blocking the event loop)
-7. **Streams** step records into the database via an `on_step` callback (wired through `asyncio.run_coroutine_threadsafe`)
-8. **Persists** the final reward, status, and test counts
+3. **Clones** the GitHub repo into `/tmp/graft/{project_id}` via `git clone --depth=1` if `github_installation_id` is set (uses a GitHub App installation access token); falls back to the local `repo_path` for legacy local projects
+4. **Snapshots** the repo into a temporary workspace via `SandboxRunner.prepare()`
+5. **Runs the baseline** test suite to establish pass/fail counts
+6. **Builds** a LangGraph episode with the initial state
+7. **Executes** the graph in a thread (to avoid blocking the event loop)
+8. **Streams** step records into the database via an `on_step` callback (wired through `asyncio.run_coroutine_threadsafe`)
+9. **Persists** the final reward, status, and test counts
+10. **Creates a PR** — if the run succeeded and the project has a GitHub installation token, copies workspace changes back to the cloned repo, creates a `graft/upgrade-*` branch, commits, pushes, and opens a PR via the GitHub API
+11. **Notifies** the frontend webhook (`FRONTEND_WEBHOOK_URL`) with the job ID, status, and PR URL
 
 ### 3. LangGraph agent
 

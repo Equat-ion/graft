@@ -154,6 +154,34 @@ class Settings(BaseSettings):
     )
     github_oauth_scopes: str = Field(default="repo,read:org", alias="GITHUB_OAUTH_SCOPES")
 
+    # GitHub App (for installation-based access — clone repos, open PRs)
+    github_app_id: str = Field(default="", alias="GITHUB_APP_ID")
+    # Base64-encoded PEM private key for the GitHub App
+    github_app_private_key_b64: str = Field(default="", alias="GITHUB_APP_PRIVATE_KEY")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def github_app_private_key(self) -> str:
+        """Decode the base64-encoded private key, or return as-is if already PEM."""
+        if not self.github_app_private_key_b64:
+            return ""
+        raw = self.github_app_private_key_b64
+        # If it looks like a PEM key already, return it
+        if raw.startswith("-----"):
+            return raw
+        try:
+            import base64
+            return base64.b64decode(raw).decode("utf-8")
+        except Exception:
+            return raw
+
+    # Frontend webhook URL for job completion callbacks
+    frontend_webhook_url: str = Field(
+        default="http://localhost:3000/api/webhooks/agent",
+        alias="FRONTEND_WEBHOOK_URL",
+    )
+    agent_webhook_secret: str = Field(default="", alias="AGENT_WEBHOOK_SECRET")
+
 
 @lru_cache
 def get_settings() -> Settings:
