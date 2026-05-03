@@ -123,7 +123,27 @@ export default function NewProjectPage({
 
             <div className="space-y-1.5">
               <Label htmlFor="repo-select">Repository</Label>
-              {repos.length > 0 ? (
+              {reposLoading ? (
+                <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading repositories...
+                </div>
+              ) : reposData?.error && repos.length === 0 ? (
+                <div className="rounded-md border border-destructive/50 bg-destructive/5 p-4 text-center">
+                  <p className="mb-3 text-xs text-destructive">
+                    {reposData.error}
+                  </p>
+                  <Button variant="outline" size="sm" className="w-full" asChild>
+                    <a
+                      href={`https://github.com/apps/${
+                        process.env.NEXT_PUBLIC_GITHUB_APP_SLUG ?? "graft-app"
+                      }/installations/new?state=${org?.id}`}
+                    >
+                      <GithubIcon className="mr-2 h-4 w-4" /> Install GitHub App
+                    </a>
+                  </Button>
+                </div>
+              ) : repos.length > 0 ? (
                 <Select
                   value={selectedRepoFullName}
                   onValueChange={(val) => setSelectedRepoFullName(val || "")}
@@ -155,11 +175,6 @@ export default function NewProjectPage({
                     </a>
                   </Button>
                 </div>
-              )}
-              {reposLoading && (
-                <p className="text-xs text-muted-foreground">
-                  Loading repositories...
-                </p>
               )}
             </div>
 

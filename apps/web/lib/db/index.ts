@@ -1,13 +1,17 @@
-import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { drizzle, type NeonDatabase } from "drizzle-orm/neon-serverless";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
 import * as schema from "./schema";
 
-let _db: NeonHttpDatabase<typeof schema> | null = null;
+// Required for @neondatabase/serverless Pool in Node.js (no native WebSocket)
+neonConfig.webSocketConstructor = ws;
+
+let _db: NeonDatabase<typeof schema> | null = null;
 
 export function getDb() {
   if (!_db) {
-    const sql = neon(process.env.DATABASE_URL!);
-    _db = drizzle(sql, { schema });
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+    _db = drizzle(pool, { schema });
   }
   return _db;
 }
@@ -15,11 +19,11 @@ export function getDb() {
 /**
  * Lazy-initialised db instance.
  * Uses a Proxy so existing `import { db }` call-sites keep working without
- * any code changes, while deferring the `neon()` connection to first use
+ * any code changes, while deferring the Pool connection to first use
  * (i.e. request-time) instead of module-load time (build-time).
  */
-export const db: NeonHttpDatabase<typeof schema> = new Proxy(
-  {} as NeonHttpDatabase<typeof schema>,
+export const db: NeonDatabase<typeof schema> = new Proxy(
+  {} as NeonDatabase<typeof schema>,
   {
     get(_target, prop, receiver) {
       const real = getDb();
@@ -30,3 +34,4 @@ export const db: NeonHttpDatabase<typeof schema> = new Proxy(
 );
 
 export * from "./schema";
+
